@@ -9,6 +9,10 @@
   let visitedIds = new Set();
   let gpsPath = [];
   let pathPolyline = null;
+  let currentPositionMarker = null;
+  let watchId = null;
+  let isTracking = false;
+  let gpsStatus = 'GPS: Not tracking';
   let findingAttractions = false;
   let sidebarExpanded = false;
   
@@ -30,7 +34,7 @@
     
     // Ensure Leaflet resizes properly when adopted by the new parent
     setTimeout(() => { map.invalidateSize(); }, 10);
-    
+
     // Create global function for popup buttons
     window.markVisited = async (id) => {
       try {
@@ -75,12 +79,29 @@
   
       renderLocations();
       renderPath();
-  
-      if (gpsPath.length > 0) {
-        map.fitBounds(pathPolyline.getBounds());
-      } else if (locations.length > 0) {
-        const group = new L.featureGroup(Object.values(markers));
-        map.fitBounds(group.getBounds());
+
+      const setFallbackView = () => {
+        const visitedLocs = locations.filter(l => visitedIds.has(l.id));
+        if (visitedLocs.length > 0) {
+          // Assume highest ID is latest visited if no timestamp is available
+          const latestVisited = visitedLocs.reduce((prev, current) => (prev.id > current.id) ? prev : current);
+          map.setView([latestVisited.lat, latestVisited.lng], 13);
+        } else if (locations.length > 0) {
+          const firstLoc = locations.reduce((prev, current) => (prev.id < current.id) ? prev : current);
+          map.setView([firstLoc.lat, firstLoc.lng], 13);
+        }
+      };
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            map.setView([pos.coords.latitude, pos.coords.longitude], 13);
+          },
+          () => setFallbackView(),
+          { timeout: 5000 }
+        );
+      } else {
+        setFallbackView();
       }
 
       // Fetch images in the background without blocking initial render
@@ -155,6 +176,81 @@
     }
   }
   
+  function startTracking() {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+    
+    isTracking = true;
+    gpsStatus = 'GPS: Acquiring signal...';
+    
+    watchId = navigator.geolocation.watchPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const accuracy = position.coords.accuracy;
+        
+        gpsStatus = `GPS: Tracking (${accuracy.toFixed(1)}m accuracy)`;
+        
+        if (!currentPositionMarker) {
+          currentPositionMarker = L.circleMarker([lat, lng], {
+            radius: 8,
+            fillColor: '#ff7800',
+            color: '#000',
+            weight: 1,
+            opacity: 1,
+            fillOpacity: 0.8
+          }).addTo(map);
+          map.setView([lat, lng], 15);
+        } else {
+          currentPositionMarker.setLatLng([lat, lng]);
+        }
+        
+        const lastPoint = gpsPath[gpsPath.length - 1];
+        let shouldSave = true;
+        if (lastPoint) {
+          const dist = map.distance([lat, lng], lastPoint);
+          if (dist < 5) shouldSave = false;
+        }
+        
+        if (shouldSave) {
+          gpsPath = [...gpsPath, [lat, lng]];
+          renderPath();
+          try {
+            await fetch('/api/path', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ lat, lng })
+            });
+          } catch(e) { console.error('Failed to save to DB', e) }
+        }
+      },
+      (error) => {
+        let msg = error.message || 'Unknown error';
+        if (error.code === 1) msg = 'Permission denied.';
+        else if (error.code === 2) msg = 'Position unavailable (Desktop PCs often lack location hardware).';
+        else if (error.code === 3) msg = 'Timeout acquiring GPS signal.';
+        
+        gpsStatus = `GPS Error: ${msg}`;
+        stopTracking();
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 27000 }
+    );
+  }
+  
+  function stopTracking() {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    isTracking = false;
+    gpsStatus = 'GPS: Stopped';
+    if (currentPositionMarker) {
+      map.removeLayer(currentPositionMarker);
+      currentPositionMarker = null;
+    }
+  }
   
   async function findAttractions() {
     findingAttractions = true;
@@ -204,14 +300,20 @@
 <div class="controls">
   <div style="display:flex; align-items:center; gap:10px;">
     <button class="sidebar-toggle-btn" on:click={() => sidebarExpanded = !sidebarExpanded}>☰ Places</button>
-    <h1 style="margin:0;">Trip Tracker V1</h1>
+    <h1 style="margin:0;">Trip Tracker</h1>
   </div>
   <div class="buttons">
+    {#if !isTracking}
+      <button class="btn" on:click={startTracking}>Start Tracking</button>
+    {:else}
+      <button class="btn stop" on:click={stopTracking}>Stop Tracking</button>
+    {/if}
     <button class="btn" on:click={findAttractions} disabled={findingAttractions}>
       {findingAttractions ? 'Loading...' : 'Find Nearby Attractions'}
     </button>
-    <a href="/suite" class="btn" style="text-decoration:none; background-color:#ffc107; color:black;">Enter</a>
+    <a href="/edit" class="btn" style="text-decoration:none; background-color:#ffc107; color:black;">Edit Location Pins</a>
   </div>
+  <div class="status">{gpsStatus}</div>
 </div>
 
 <div class="main-content">

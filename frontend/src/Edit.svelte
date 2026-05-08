@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import L from 'leaflet';
+  import { getSharedMap } from './sharedMap.js';
   
   let mapContainer;
   let map;
@@ -10,12 +11,14 @@
   const defaultIcon = new L.Icon.Default();
 
   onMount(async () => {
-    map = L.map(mapContainer).setView([58.14, 7.99], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap'
-    }).addTo(map);
-
+    const { map: sharedMap, container } = getSharedMap();
+    map = sharedMap; // Use the stored Leaflet map reference
+    
+    // Append the persistent map container to this specific view's map wrapper
+    mapContainer.appendChild(container);
+    
+    // Ensure Leaflet resizes properly when adopted by the new parent
+    setTimeout(() => { map.invalidateSize(); }, 10);
     await loadLocations();
 
     // Map click adds new location visually
@@ -101,7 +104,7 @@
   <h1>Edit Mode</h1>
   <div class="buttons">
     <button class="btn" style="background-color: #28a745;" on:click={saveChanges}>Save Changes</button>
-    <a href="/" class="btn" style="text-decoration:none; background-color: #6c757d;">Back to Map</a>
+    <a href="/suite" class="btn" style="text-decoration:none; background-color: #6c757d;">Back to Map</a>
   </div>
   <div class="status">Click map to add a pin. Drag a pin to move it.</div>
 </div>

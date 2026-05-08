@@ -9,15 +9,27 @@ app.use(express.json());
 
 // Simple Basic Authentication Middleware
 app.use((req, res, next) => {
-  const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
-  const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+  const isHome = req.path === '/';
+  const isFile = req.path.includes('.');
+  const isPublicApi = req.path.startsWith('/api/') && (
+    req.method === 'GET' || 
+    req.path === '/api/visited' || 
+    req.path === '/api/path'
+  );
 
-  if (login === 'natcotine' && password === 'Norway') {
-    return next();
+  if (!isHome && !isFile && !isPublicApi) {
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+
+    if (login === 'natcotine' && password === 'Norway') {
+      return next();
+    }
+
+    res.set('WWW-Authenticate', 'Basic realm="Authentication Required"');
+    res.status(401).send('Authentication required.');
+  } else {
+    next();
   }
-
-  res.set('WWW-Authenticate', 'Basic realm="Authentication Required"');
-  res.status(401).send('Authentication required.');
 });
 
 app.use(express.static('public'));
@@ -26,8 +38,8 @@ const db = sqlite('trip.db');
 
 // Initialize database
 db.prepare(`
-  CREATE TABLE IF NOT EXISTS visited_places (
-    name TEXT PRIMARY KEY
+  CREATE TABLE IF NOT EXISTS visited_locations (
+    id INTEGER PRIMARY KEY
   )
 `).run();
 
