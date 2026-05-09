@@ -1,7 +1,7 @@
 import L from 'leaflet';
 
-let mapInstance = null;
-let mapContainerElement = null;
+let mapInstance: L.Map;
+let mapContainerElement: HTMLElement;
 
 export function getSharedMap() {
   if (!mapInstance) {

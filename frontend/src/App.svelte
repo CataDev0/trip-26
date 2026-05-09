@@ -1,18 +1,29 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
   import L from 'leaflet';
-  import { getSharedMap } from './sharedMap.js';
+  import { getSharedMap } from './sharedMap';
+  import { fetchAndRenderAttractions } from './attractions';
+  import { MIN_ATTRACTIONS_ZOOM } from './Constants';
+
+  interface LocationData {
+    id: number;
+    name: string;
+    lat: number;
+    lng: number;
+    imageUrl?: string;
+  }
   
-  let map;
-  let mapContainer;
-  let locations = [];
-  let visitedIds = new Set();
-  let gpsPath = [];
-  let pathPolyline = null;
-  let findingAttractions = false;
-  let sidebarExpanded = false;
+  let map: L.Map;
+  let mapContainer: HTMLDivElement;
+  let locations: LocationData[] = [];
+  let visitedIds: Set<number> = new Set();
+  let gpsPath: [number, number][] = [];
+  let pathPolyline: L.Polyline | null = null;
+  let findingAttractions: boolean = false;
+  let sidebarExpanded: boolean = false;
+  let currentZoom: number = 13;
   
-  const markers = {};
+  const markers: Record<number, L.Marker> = {};
   
   const defaultIcon = new L.Icon.Default();
   const visitedIcon = new L.Icon({
@@ -25,6 +36,11 @@
     const { map: sharedMap, container } = getSharedMap();
     map = sharedMap; // Use the stored Leaflet map reference
     
+    currentZoom = map.getZoom() || 13;
+    map.on('zoomend', () => {
+      currentZoom = map.getZoom();
+    });
+
     // Append the persistent map container to this specific view's map wrapper
     mapContainer.appendChild(container);
     
@@ -32,7 +48,7 @@
     setTimeout(() => { map.invalidateSize(); }, 10);
     
     // Create global function for popup buttons
-    window.markVisited = async (id) => {
+    (window as any).markVisited = async (id: number) => {
       try {
         await fetch('/api/visited', {
           method: 'POST',
@@ -46,8 +62,10 @@
         const loc = locations.find(l => l.id === id);
         const marker = markers[id];
         
-        marker.setIcon(visitedIcon);
-        marker.setPopupContent(createPopupContent(loc, true));
+        if (loc && marker) {
+          marker.setIcon(visitedIcon);
+          marker.setPopupContent(createPopupContent(loc, true));
+        }
       } catch (err) {
         console.error('Error marking as visited:', err);
         alert('Failed to mark as visited.');
@@ -56,7 +74,7 @@
     
     await loadData();
     return () => {
-      delete window.markVisited;
+      delete (window as any).markVisited;
     };
   });
   
@@ -71,20 +89,20 @@
   
       const pathRes = await fetch('/api/path');
       const pathData = await pathRes.json();
-      gpsPath = pathData.map(p => [p.lat, p.lng]);
+      gpsPath = pathData.map((p: LocationData) => [p.lat, p.lng]);
   
       renderLocations();
       renderPath();
   
       if (gpsPath.length > 0) {
-        map.fitBounds(pathPolyline.getBounds());
+        map.fitBounds(pathPolyline?.getBounds() || L.latLngBounds(gpsPath));
       } else if (locations.length > 0) {
         const group = new L.featureGroup(Object.values(markers));
         map.fitBounds(group.getBounds());
       }
 
       // Fetch images in the background without blocking initial render
-      locations.forEach(async (loc, index) => {
+      locations.forEach(async (loc: LocationData, index: number) => {
         try {
           const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(loc.name)}`);
           if (wikiRes.ok) {
@@ -101,7 +119,7 @@
           if (wdRes.ok) {
             const wdData = await wdRes.json();
             if (wdData.query && wdData.query.pages) {
-              const pages = Object.values(wdData.query.pages);
+              const pages: any[] = Object.values(wdData.query.pages);
               if (pages.length > 0 && pages[0].thumbnail) {
                 locations[index].imageUrl = pages[0].thumbnail.source;
                 locations = [...locations]; // trigger Svelte reactivity
@@ -116,14 +134,14 @@
     }
   }
 
-  function updateMarkerPopup(loc) {
+  function updateMarkerPopup(loc: LocationData) {
     const marker = markers[loc.id];
     if (marker && marker.getPopup()) {
       marker.setPopupContent(createPopupContent(loc, visitedIds.has(loc.id)));
     }
   }
   
-  function createPopupContent(loc, isVisited) {
+  function createPopupContent(loc: LocationData, isVisited: boolean): string {
     return `
       <div style="text-align: center; min-width: 120px;">
         ${loc.imageUrl ? `<img src="${loc.imageUrl}" alt="${loc.name}" style="width:100%; max-height:100px; object-fit:cover; border-radius:4px; margin-bottom:5px;" /><br>` : ''}
@@ -159,26 +177,7 @@
   async function findAttractions() {
     findingAttractions = true;
     try {
-      const bounds = map.getBounds();
-      const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
-      const query = `[out:json][timeout:25];(node["tourism"="museum"](${bbox});node["historic"](${bbox});node["tourism"="attraction"](${bbox}););out;`;
-      
-      const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      
-      data.elements.forEach(el => {
-        if (el.lat && el.lon) {
-          const name = (el.tags && el.tags.name) ? el.tags.name : 'Unknown Attraction';
-          L.circleMarker([el.lat, el.lon], {
-            radius: 6,
-            fillColor: '#9c27b0',
-            color: '#fff',
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.8
-          }).addTo(map).bindPopup(`<div><strong>${name}</strong><br><em>Nearby Attraction</em></div>`);
-        }
-      });
+      await fetchAndRenderAttractions(map, false);
     } catch (err) {
       console.error('Failed to fetch attractions', err);
       alert('Failed to load attractions.');
@@ -187,7 +186,7 @@
     }
   }
 
-  function jumpToLocation(loc) {
+  function jumpToLocation(loc: LocationData) {
     sidebarExpanded = false;
     map.flyTo([loc.lat, loc.lng], 16, { duration: 1.5 });
     
@@ -207,8 +206,8 @@
     <h1 style="margin:0;">Trip Tracker V1</h1>
   </div>
   <div class="buttons">
-    <button class="btn" on:click={findAttractions} disabled={findingAttractions}>
-      {findingAttractions ? 'Loading...' : 'Find Nearby Attractions'}
+    <button class="btn" on:click={findAttractions} disabled={findingAttractions || currentZoom < MIN_ATTRACTIONS_ZOOM}>
+      {findingAttractions ? 'Loading...' : (currentZoom < MIN_ATTRACTIONS_ZOOM ? 'Zoom in to find attractions' : 'Find Nearby Attractions')}
     </button>
     <a href="/suite" class="btn" style="text-decoration:none; background-color:#ffc107; color:black;">Enter</a>
   </div>

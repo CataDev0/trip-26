@@ -1,12 +1,12 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
   import L from 'leaflet';
-  import { getSharedMap } from './sharedMap.js';
-  
-  let mapContainer;
-  let map;
-  let locations = [];
-  let markers = [];
+  import { getSharedMap } from './sharedMap';
+
+  let mapContainer: HTMLDivElement;
+  let map: L.Map;
+  let locations: any[] = [];
+  let markers: L.Layer[] | undefined = [];
   
   const defaultIcon = new L.Icon.Default();
 
@@ -29,18 +29,18 @@
     });
 
     // Global hooks inside popup HTML snippets
-    window.editLocName = (id, newName) => {
+    (window as any).editLocName = (id: number, newName: string) => {
       locations[id].name = newName;
     };
-    window.deleteLoc = (id) => {
+    (window as any).deleteLoc = (id: number) => {
       locations.splice(id, 1);
       locations = [...locations];
       renderLocations();
     };
 
     return () => {
-      delete window.editLocName;
-      delete window.deleteLoc;
+      delete (window as any).editLocName;
+      delete (window as any).deleteLoc;
       if (map) map.remove();
     };
   });
@@ -50,7 +50,7 @@
     locations = await res.json();
     renderLocations();
     
-    if (markers.length > 0) {
+    if (markers && markers.length > 0) {
       const group = new L.featureGroup(markers);
       map.fitBounds(group.getBounds());
     }
@@ -58,7 +58,7 @@
 
   function renderLocations() {
     // Clear old markers
-    markers.forEach(m => map.removeLayer(m));
+    markers?.forEach(m => map.removeLayer(m));
     markers = [];
 
     locations.forEach((loc, index) => {
@@ -79,7 +79,7 @@
         </div>
       `);
       
-      markers.push(marker);
+      markers?.push(marker);
     });
   }
 

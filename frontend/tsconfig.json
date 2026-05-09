@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "module": "esnext",
+    "target": "esnext",
+    "lib": ["esnext", "DOM"],
+    "skipLibCheck": true,
+    "paths": {
+      "$lib": ["src/lib"],
+      "$lib/*": ["src/lib/*"]
+    },
+    "types": ["vite/client", "leaflet"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
+}
