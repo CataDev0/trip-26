@@ -1,6 +1,6 @@
-const fs = require('fs');
+const fs = require("fs");
 
-let serverCode = fs.readFileSync('server.js', 'utf8');
+let serverCode = fs.readFileSync("server.js", "utf8");
 
 // 1. Add table initialization and default loading
 const tableInit = `
@@ -40,7 +40,7 @@ if (count.count === 0) {
 
 serverCode = serverCode.replace(
   /db\.prepare\([\s\S]*?gps_path[\s\S]*?run\(\);/,
-  match => match + '\n' + tableInit
+  (match) => match + "\n" + tableInit,
 );
 
 // 2. Update GET /api/locations
@@ -57,7 +57,7 @@ app.get('/api/locations', (req, res) => {
 
 serverCode = serverCode.replace(
   /app\.get\('\/api\/locations'[\s\S]*?}\);/,
-  getLocations.trim()
+  getLocations.trim(),
 );
 
 // 3. Update POST /api/locations (Array replacement) and add Single add
@@ -103,7 +103,7 @@ app.post('/api/locations/single', (req, res) => {
 
 serverCode = serverCode.replace(
   /app\.post\('\/api\/locations'[\s\S]*?}\);/,
-  postLocations.trim()
+  postLocations.trim(),
 );
 
-fs.writeFileSync('server.js', serverCode);
+fs.writeFileSync("server.js", serverCode);

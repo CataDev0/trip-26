@@ -1,33 +1,63 @@
-import L from 'leaflet';
-import { AttractionData } from './Typed';
+import L from "leaflet";
+import { AttractionData } from "./Typed";
 
 /**
  * Fetches nearby attractions using Overpass API and renders them on the map.
  * @param map The Leaflet map instance to get bounds from and add markers to.
  * @param canSave Whether to render a "Save to Locations" button in the popup.
  */
-export async function fetchAndRenderAttractions(map: L.Map, canSave: boolean): Promise<void> {
+export async function fetchAndRenderAttractions(
+  map: L.Map,
+  canSave: boolean,
+): Promise<void> {
   const bounds = map.getBounds();
   const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
   const query = `[out:json][timeout:25];(node["tourism"="museum"](${bbox});node["historic"](${bbox});node["tourism"="attraction"](${bbox}););out;`;
-  
-  const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+
+  let res;
+  for (let i = 0; i < 3; i++) {
+    res = await fetch(
+      `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
+    );
+    if (res.ok) break;
+    // Retry on 504 (Gateway Timeout) or 429 (Too Many Requests)
+    if (res.status === 504 || res.status === 429) {
+      console.warn(
+        `Overpass API error ${res.status}, retrying in ${1.5 * (i + 1)}s...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1500 * (i + 1)));
+    } else {
+      break;
+    }
+  }
+
+  if (!res || !res.ok) {
+    console.error(
+      "Failed to fetch attractions:",
+      res?.statusText || "Max retries reached",
+    );
+    return;
+  }
+
   const data = await res.json();
-  
+
   data.elements.forEach((el: AttractionData) => {
     if (el.lat && el.lon && el.tags) {
-        console.log(el.tags);
+      console.log(el.tags);
       let type = el.tags.tourism || el.tags.historic || el.tags.amenity;
-      
+
       // Better classification handling for generic or composite tags
-      if (type === 'yes') type = 'Historic Site';
-      else if (type === 'memorial' && el.tags.memorial) type = `${el.tags.memorial} Memorial`;
-      
-      const formattedType = type ? type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Attraction';
+      if (type === "yes") type = "Historic Site";
+      else if (type === "memorial" && el.tags.memorial)
+        type = `${el.tags.memorial} Memorial`;
+
+      const formattedType = type
+        ? type.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+        : "Attraction";
       const name = el.tags["name:en"] || el.tags.name || formattedType;
-      
+
       let popupContent = `<div style="text-align: center; min-width: 150px;">`;
-      
+
       // Inline OpenStreetMap images if provided
       if (el.tags.image) {
         if (el.tags.image.match(/\.(jpeg|jpg|gif|png)$/i)) {
@@ -36,16 +66,16 @@ export async function fetchAndRenderAttractions(map: L.Map, canSave: boolean): P
           popupContent += `<a href="${el.tags.image}" target="_blank" rel="noopener noreferrer" style="display:block; margin-bottom:5px;">📷 View Image</a>`;
         }
       }
-      
+
       popupContent += `<strong>${name}</strong>`;
       if (el.tags.name) {
-         popupContent += `<br><em>${formattedType !== 'Attraction' ? formattedType : 'Nearby Attraction'}</em>`;
+        popupContent += `<br><em>${formattedType !== "Attraction" ? formattedType : "Nearby Attraction"}</em>`;
       }
-      
+
       if (el.tags.description) {
         popupContent += `<br><br><div style="font-size: 0.9em; max-height: 100px; overflow-y: auto;">${el.tags.description}</div>`;
       }
-      
+
       let linkUrl = el.tags.website || el.tags.url;
       if (!linkUrl && el.tags.wikipedia) {
         const wikiMatch = el.tags.wikipedia.match(/^([a-z\-]+):(.*)$/);
@@ -55,26 +85,28 @@ export async function fetchAndRenderAttractions(map: L.Map, canSave: boolean): P
           linkUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(el.tags.wikipedia)}`;
         }
       }
-      
+
       if (linkUrl) {
-        if (!linkUrl.startsWith('http')) linkUrl = 'http://' + linkUrl;
+        if (!linkUrl.startsWith("http")) linkUrl = "http://" + linkUrl;
         popupContent += `<br><br><a href="${linkUrl}" target="_blank" rel="noopener noreferrer">More Info</a>`;
       }
-      
+
       if (canSave) {
         popupContent += `<br><br><button style="padding:4px;cursor:pointer;" onclick="window.saveAttraction('${name.replace(/'/g, "\\'")}', ${el.lat}, ${el.lon})">Save to Locations</button>`;
       }
-      
+
       popupContent += `</div>`;
 
       L.circleMarker([el.lat, el.lon], {
         radius: 6,
-        fillColor: '#9c27b0',
-        color: '#fff',
+        fillColor: "#9c27b0",
+        color: "#fff",
         weight: 1,
         opacity: 1,
-        fillOpacity: 0.8
-      }).addTo(map).bindPopup(popupContent);
+        fillOpacity: 0.8,
+      })
+        .addTo(map)
+        .bindPopup(popupContent);
     }
   });
 }
