@@ -18,7 +18,7 @@
   let locations: LocationData[] = [];
   let visitedIds: Set<number> = new Set();
   let gpsPath: [number, number][] = [];
-  let pathPolyline: L.Polyline | null = null;
+  let pathLayerGroup: L.LayerGroup | null = null;
   let findingAttractions: boolean = false;
   let sidebarExpanded: boolean = false;
   let currentZoom: number = 13;
@@ -71,7 +71,7 @@
       renderPath();
 
       if (gpsPath.length > 0) {
-        map.fitBounds(pathPolyline?.getBounds() || L.latLngBounds(gpsPath));
+        map.fitBounds(L.latLngBounds(gpsPath));
       } else if (locations.length > 0) {
         const group = new L.featureGroup(Object.values(markers));
         map.fitBounds(group.getBounds());
@@ -149,13 +149,24 @@
   }
 
   function renderPath() {
-    if (pathPolyline) {
-      map.removeLayer(pathPolyline);
+    if (pathLayerGroup) {
+      map.removeLayer(pathLayerGroup);
     }
-    if (gpsPath.length > 0) {
-      pathPolyline = L.polyline(gpsPath, { color: "blue", weight: 4 }).addTo(
-        map,
-      );
+    if (gpsPath.length > 1) {
+      const segments = [];
+      const len = gpsPath.length;
+      for (let i = 0; i < len - 1; i++) {
+        // Gradient from Purple (oldest) to Bright Green (newest)
+        const fraction = i / (len - 1);
+        const hue = 280 - (fraction * 160); // 280 -> 120
+        segments.push(
+          L.polyline([gpsPath[i], gpsPath[i + 1]], {
+            color: `hsl(${hue}, 100%, 50%)`,
+            weight: 5
+          })
+        );
+      }
+      pathLayerGroup = L.layerGroup(segments).addTo(map);
     }
   }
 

@@ -12,10 +12,7 @@ app.use((req, res, next) => {
   const isHome = req.path === "/";
   const isFile = req.path.includes(".");
   const isPublicApi =
-    req.path.startsWith("/api/") &&
-    (req.method === "GET" ||
-      req.path === "/api/visited" ||
-      req.path === "/api/path");
+    req.path.startsWith("/api/") && req.method === "GET";
 
   if (!isHome && !isFile && !isPublicApi) {
     const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
@@ -127,13 +124,21 @@ app.post("/api/visited", (req, res) => {
   res.json({ success: true });
 });
 
-// Save a GPS point to the path
+// Save a GPS point(s) to the path
 app.post("/api/path", (req, res) => {
-  const { lat, lng } = req.body;
-  if (lat === undefined || lng === undefined)
-    return res.status(400).json({ error: "Missing lat or lng" });
+  const points = Array.isArray(req.body) ? req.body : [req.body];
+  if (points.length === 0) return res.status(400).json({ error: "No points provided" });
 
-  db.prepare("INSERT INTO gps_path (lat, lng) VALUES (?, ?)").run(lat, lng);
+  const insert = db.prepare("INSERT INTO gps_path (lat, lng) VALUES (?, ?)");
+  const insertMany = db.transaction((pts) => {
+    for (const pt of pts) {
+      if (pt.lat !== undefined && pt.lng !== undefined) {
+        insert.run(pt.lat, pt.lng);
+      }
+    }
+  });
+
+  insertMany(points);
   res.json({ success: true });
 });
 

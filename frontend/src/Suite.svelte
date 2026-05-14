@@ -18,11 +18,13 @@
   let locations: LocationData[] = [];
   let visitedIds: Set<number> = new Set();
   let gpsPath: [number, number][] = [];
-  let pathPolyline: L.Polyline | null = null;
+  let pathLayerGroup: L.LayerGroup | null = null;
   let currentPositionMarker: L.CircleMarker | null = null;
   let watchId: number | null = null;
   let isTracking: boolean = false;
   let gpsStatus: string = "GPS: Not tracking";
+  let wakeLock: any = null; // WakeLockSentinel
+  let offlineQueue: {lat: number, lng: number}[] = JSON.parse(localStorage.getItem('gpsOfflineQueue') || '[]');
   let findingAttractions: boolean = false;
   let sidebarExpanded: boolean = false;
   let currentZoom: number = 13;
@@ -113,8 +115,16 @@
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (wakeLock !== null && document.visibilityState === 'visible' && isTracking) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     await loadData();
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       delete (window as any).markVisited;
       delete (window as any).saveAttraction;
     };
@@ -239,13 +249,55 @@
   }
 
   function renderPath() {
-    if (pathPolyline) {
-      map.removeLayer(pathPolyline);
+    if (pathLayerGroup) {
+      map.removeLayer(pathLayerGroup);
     }
-    if (gpsPath.length > 0) {
-      pathPolyline = L.polyline(gpsPath, { color: "blue", weight: 4 }).addTo(
-        map,
-      );
+    if (gpsPath.length > 1) {
+      const segments = [];
+      const len = gpsPath.length;
+      for (let i = 0; i < len - 1; i++) {
+        // Gradient from Purple (oldest) to Bright Green (newest)
+        const fraction = i / (len - 1);
+        const hue = 280 - (fraction * 160); // 280 -> 120
+        segments.push(
+          L.polyline([gpsPath[i], gpsPath[i + 1]], {
+            color: `hsl(${hue}, 100%, 50%)`,
+            weight: 5
+          })
+        );
+      }
+      pathLayerGroup = L.layerGroup(segments).addTo(map);
+    }
+  }
+
+  async function flushOfflineQueue() {
+    if (offlineQueue.length === 0) return;
+    try {
+      const res = await fetch("/api/path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(offlineQueue),
+      });
+      if (res.ok) {
+        offlineQueue = [];
+        localStorage.setItem('gpsOfflineQueue', '[]');
+      }
+    } catch (e) {
+      console.log("Still offline, queue length:", offlineQueue.length);
+    }
+  }
+
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLock = await (navigator as any).wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => {
+          console.log('Screen Wake Lock was released');
+        });
+        console.log('Screen Wake Lock is active');
+      } catch (err: any) {
+        console.error(`${err.name}, ${err.message}`);
+      }
     }
   }
 
@@ -257,6 +309,8 @@
 
     isTracking = true;
     gpsStatus = "GPS: Acquiring signal...";
+    requestWakeLock();
+    flushOfflineQueue(); // Try to flush any old points when we start
 
     watchId = navigator.geolocation.watchPosition(
       async (position) => {
@@ -265,6 +319,10 @@
         const accuracy = position.coords.accuracy;
 
         gpsStatus = `GPS: Tracking (${accuracy.toFixed(1)}m accuracy)`;
+
+        if (accuracy > 20) {
+          return; // Skip drawing/saving if accuracy is too low
+        }
 
         if (!currentPositionMarker) {
           currentPositionMarker = L.circleMarker([lat, lng], {
@@ -284,20 +342,31 @@
         let shouldSave = true;
         if (lastPoint) {
           const dist = map.distance([lat, lng], lastPoint);
-          if (dist < 5) shouldSave = false;
+          if (dist < 2) shouldSave = false;
         }
 
         if (shouldSave) {
           gpsPath = [...gpsPath, [lat, lng]];
           renderPath();
+
+          // If we had points waiting, we'll pack the current point into the flush attempt
+          if (offlineQueue.length > 0) {
+            offlineQueue.push({ lat, lng });
+            flushOfflineQueue();
+            return;
+          }
+
           try {
-            await fetch("/api/path", {
+            const res = await fetch("/api/path", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ lat, lng }),
             });
+            if (!res.ok) throw new Error("Failed");
           } catch (e) {
-            console.error("Failed to save to DB", e);
+            console.error("Failed to save to DB, queueing offline", e);
+            offlineQueue.push({ lat, lng });
+            localStorage.setItem('gpsOfflineQueue', JSON.stringify(offlineQueue));
           }
         }
       },
@@ -312,7 +381,7 @@
         gpsStatus = `GPS Error: ${msg}`;
         stopTracking();
       },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 27000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 },
     );
   }
 
@@ -320,6 +389,9 @@
     if (watchId !== null) {
       navigator.geolocation.clearWatch(watchId);
       watchId = null;
+    }
+    if (wakeLock !== null) {
+      wakeLock.release().then(() => { wakeLock = null; });
     }
     isTracking = false;
     gpsStatus = "GPS: Stopped";
