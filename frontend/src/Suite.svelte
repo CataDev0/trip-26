@@ -1,10 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
+import { API_BASE, AUTH_HEADER } from "./Constants";
+  import { Capacitor, registerPlugin } from "@capacitor/core";
+  import type { BackgroundGeolocationPlugin } from "@capacitor-community/background-geolocation";
   import { getSharedMap } from "./sharedMap";
   import { fetchAndRenderAttractions } from "./attractions";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
   import TopBar from "./TopBar.svelte";
+
+  const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>("BackgroundGeolocation");
 
   interface LocationData {
     id: number;
@@ -21,7 +26,7 @@
   let gpsPath: [number, number][] = [];
   let pathLayerGroup: L.LayerGroup | null = null;
   let currentPositionMarker: L.CircleMarker | null = null;
-  let watchId: number | null = null;
+  let watchId: string | null = null;
   let isTracking: boolean = false;
   let gpsStatus: string = "GPS: Not tracking";
   let currentSpeedKmH: string = "--";
@@ -72,9 +77,9 @@
     // Create global function for popup buttons
     (window as any).markVisited = async (id: number) => {
       try {
-        await fetch("/api/visited", {
+        await fetch(API_BASE + "/api/visited", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...AUTH_HEADER },
           body: JSON.stringify({ id }),
         });
 
@@ -100,9 +105,9 @@
       lng: number,
     ) => {
       try {
-        const res = await fetch("/api/locations/single", {
+        const res = await fetch(API_BASE + "/api/locations/single", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...AUTH_HEADER },
           body: JSON.stringify({ name, lat, lng }),
         });
 
@@ -144,14 +149,14 @@
 
   async function loadData() {
     try {
-      const locRes = await fetch("/api/locations");
+      const locRes = await fetch(API_BASE + "/api/locations");
       locations = await locRes.json();
 
-      const visRes = await fetch("/api/visited");
+      const visRes = await fetch(API_BASE + "/api/visited");
       const visited = await visRes.json();
       visitedIds = new Set(visited);
 
-      const pathRes = await fetch("/api/path");
+      const pathRes = await fetch(API_BASE + "/api/path");
       const pathData = await pathRes.json();
       gpsPath = pathData.map((p: { lat: number; lng: number }) => [
         p.lat,
@@ -285,9 +290,9 @@
   async function flushOfflineQueue() {
     if (offlineQueue.length === 0) return;
     try {
-      const res = await fetch("/api/path", {
+      const res = await fetch(API_BASE + "/api/path", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...AUTH_HEADER },
         body: JSON.stringify(offlineQueue),
       });
       if (res.ok) {
@@ -315,7 +320,7 @@
 
   async function fetchSpeedLimit(lat: number, lng: number) {
     try {
-      const res = await fetch(`/api/speed-limit?lat=${lat}&lng=${lng}`);
+      const res = await fetch(API_BASE + `/api/speed-limit?lat=${lat}&lng=${lng}`);
       if (!res.ok) throw new Error("Proxy failed");
       const data = await res.json();
       currentSpeedLimit = data.speedLimit;
@@ -324,108 +329,125 @@
     }
   }
 
-  function startTracking() {
-    if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser");
-      return;
-    }
-
+  async function startTracking() {
     isTracking = true;
     gpsStatus = "GPS: Acquiring signal...";
     requestWakeLock();
     flushOfflineQueue(); // Try to flush any old points when we start
 
-    watchId = navigator.geolocation.watchPosition(
-      async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const accuracy = position.coords.accuracy;
-        const speed = position.coords.speed; // meters per second
+    const onPositionUpdate = async (lat, lng, accuracy, speed) => {
+      gpsStatus = `GPS: Tracking (${accuracy.toFixed(1)}m accuracy)`;
+      if (speed !== null && speed !== undefined) {
+        const kmh = speed * 3.6;
+        currentSpeedKmH = kmh.toFixed(0); 
 
-        gpsStatus = `GPS: Tracking (${accuracy.toFixed(1)}m accuracy)`;
-        if (speed !== null && speed !== undefined) {
-          const kmh = speed * 3.6;
-          currentSpeedKmH = kmh.toFixed(0); // Waze uses whole numbers
+        if (kmh > 10 && Date.now() - lastSpeedLimitFetch > 15000) {
+          lastSpeedLimitFetch = Date.now();
+          fetchSpeedLimit(lat, lng);
+        }
+      } else {
+        currentSpeedKmH = "--";
+      }
 
-          // Only poll API every 15 seconds, and only if driving over 10 km/h to save API quota
-          if (kmh > 10 && Date.now() - lastSpeedLimitFetch > 15000) {
-            lastSpeedLimitFetch = Date.now();
-            fetchSpeedLimit(lat, lng);
-          }
+      if (accuracy > 20) return;
 
-        } else {
-          currentSpeedKmH = "--";
+      if (!currentPositionMarker) {
+        currentPositionMarker = L.circleMarker([lat, lng], {
+          radius: 8, fillColor: "#ff7800", color: "#000", weight: 1, opacity: 1, fillOpacity: 0.8,
+        }).addTo(map);
+        if (autoFollow) map.setView([lat, lng], 15);
+      } else {
+        currentPositionMarker.setLatLng([lat, lng]);
+        if (autoFollow) map.setView([lat, lng]);
+      }
+
+      const lastPoint = gpsPath[gpsPath.length - 1];
+      let shouldSave = true;
+      if (lastPoint) {
+        const dist = map.distance([lat, lng], lastPoint);
+        if (dist < 2) shouldSave = false;
+      }
+
+      if (shouldSave) {
+        gpsPath = [...gpsPath, [lat, lng]];
+        renderPath();
+
+        if (offlineQueue.length > 0) {
+          offlineQueue.push({ lat, lng });
+          flushOfflineQueue();
+          return;
         }
 
-        if (accuracy > 20) {
-          return; // Skip drawing/saving if accuracy is too low
+        try {
+          const res = await fetch(API_BASE + "/api/path", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...AUTH_HEADER },
+            body: JSON.stringify({ lat, lng }),
+          });
+          if (!res.ok) throw new Error("Failed");
+        } catch (e) {
+          console.error("Failed to save to DB, queueing offline", e);
+          offlineQueue.push({ lat, lng });
+          localStorage.setItem('gpsOfflineQueue', JSON.stringify(offlineQueue));
         }
+      }
+    };
 
-        if (!currentPositionMarker) {
-          currentPositionMarker = L.circleMarker([lat, lng], {
-            radius: 8,
-            fillColor: "#ff7800",
-            color: "#000",
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.8,
-          }).addTo(map);
-          if (autoFollow) map.setView([lat, lng], 15);
-        } else {
-          currentPositionMarker.setLatLng([lat, lng]);
-          if (autoFollow) map.setView([lat, lng]);
-        }
-
-        const lastPoint = gpsPath[gpsPath.length - 1];
-        let shouldSave = true;
-        if (lastPoint) {
-          const dist = map.distance([lat, lng], lastPoint);
-          if (dist < 2) shouldSave = false;
-        }
-
-        if (shouldSave) {
-          gpsPath = [...gpsPath, [lat, lng]];
-          renderPath();
-
-          // If we had points waiting, we'll pack the current point into the flush attempt
-          if (offlineQueue.length > 0) {
-            offlineQueue.push({ lat, lng });
-            flushOfflineQueue();
+    if (Capacitor.isNativePlatform()) {
+      watchId = await BackgroundGeolocation.addWatcher(
+        {
+          backgroundMessage: "Your position is being recorded for your trip.",
+          backgroundTitle: "Trip Tracker Running",
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 2
+        },
+        async (position, error) => {
+          if (error) {
+            let msg = error.message || "Unknown error";
+            gpsStatus = `GPS Error: ${msg}`;
+            stopTracking();
             return;
           }
-
-          try {
-            const res = await fetch("/api/path", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ lat, lng }),
-            });
-            if (!res.ok) throw new Error("Failed");
-          } catch (e) {
-            console.error("Failed to save to DB, queueing offline", e);
-            offlineQueue.push({ lat, lng });
-            localStorage.setItem('gpsOfflineQueue', JSON.stringify(offlineQueue));
-          }
+          if (!position) return;
+          onPositionUpdate(position.latitude, position.longitude, position.accuracy || 0, position.speed || null);
         }
-      },
-      (error) => {
-        let msg = error.message || "Unknown error";
-        if (error.code === 1) msg = "Permission denied.";
-        else if (error.code === 2)
-          msg =
-            "Position unavailable (Desktop PCs often lack location hardware).";
-        else if (error.code === 3) msg = "Timeout acquiring GPS signal.";
+      );
+    } else {
+      if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser");
+        return;
+      }
+      watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          onPositionUpdate(
+            position.coords.latitude,
+            position.coords.longitude,
+            position.coords.accuracy,
+            position.coords.speed
+          );
+        },
+        (error) => {
+          let msg = error.message || "Unknown error";
+          if (error.code === 1) msg = "Permission denied.";
+          else if (error.code === 2) msg = "Position unavailable.";
+          else if (error.code === 3) msg = "Timeout acquiring GPS signal.";
 
-        gpsStatus = `GPS Error: ${msg}`;
-        stopTracking();
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 },
-    );
+          gpsStatus = `GPS Error: ${msg}`;
+          stopTracking();
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 }
+      );
+    }
   }
 
   function stopTracking() {
     if (watchId !== null) {
-      navigator.geolocation.clearWatch(watchId);
+      if (Capacitor.isNativePlatform()) {
+        BackgroundGeolocation.removeWatcher({ id: watchId });
+      } else {
+        navigator.geolocation.clearWatch(watchId as any);
+      }
       watchId = null;
     }
     if (wakeLock !== null) {

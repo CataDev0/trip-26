@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
+import { API_BASE, AUTH_HEADER } from "./Constants";
   import { getSharedMap } from "./sharedMap";
   import TopBar from "./TopBar.svelte";
 
@@ -53,7 +54,7 @@
   });
 
   async function loadLocations() {
-    const res = await fetch("/api/locations");
+    const res = await fetch(API_BASE + "/api/locations");
     locations = await res.json();
     renderLocations();
 
@@ -95,9 +96,9 @@
 
   async function saveChanges() {
     try {
-      const res = await fetch("/api/locations", {
+      const res = await fetch(API_BASE + "/api/locations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...AUTH_HEADER },
         // Only strip out 'id' just in case. Ensure clean lat/lng and name.
         body: JSON.stringify(
           locations.map((l) => ({ name: l.name, lat: l.lat, lng: l.lng })),

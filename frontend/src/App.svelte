@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
+import { API_BASE } from "./Constants";
   import { getSharedMap } from "./sharedMap";
   import { fetchAndRenderAttractions } from "./attractions";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
@@ -57,14 +58,14 @@
 
   async function loadData() {
     try {
-      const locRes = await fetch("/api/locations");
+      const locRes = await fetch(API_BASE + "/api/locations");
       locations = await locRes.json();
 
-      const visRes = await fetch("/api/visited");
+      const visRes = await fetch(API_BASE + "/api/visited");
       const visited = await visRes.json();
       visitedIds = new Set(visited);
 
-      const pathRes = await fetch("/api/path");
+      const pathRes = await fetch(API_BASE + "/api/path");
       const pathData = await pathRes.json();
       gpsPath = pathData.map((p: LocationData) => [p.lat, p.lng]);
 

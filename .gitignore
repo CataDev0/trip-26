@@ -3,3 +3,10 @@ node_modules/
 trip.db
 public/
 .env
+
+# Capacitor & Android Build Artifacts
+frontend/android/.gradle
+frontend/android/.idea
+frontend/android/app/build
+frontend/android/build
+frontend/android/app/src/main/assets/public

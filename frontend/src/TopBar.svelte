@@ -14,7 +14,7 @@
     if (showVisitorCount) {
       const fetchVisitors = async () => {
         try {
-          const res = await fetch("/api/visitors");
+          const res = await fetch(API_BASE + "/api/visitors");
           const data = await res.json();
           visitorCount = data.count;
         } catch (e) {

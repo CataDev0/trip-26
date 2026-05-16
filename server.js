@@ -1,11 +1,13 @@
 require("dotenv").config();
 const express = require("express");
+const cors = require("cors");
 const sqlite = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 // Simple Basic Authentication Middleware
