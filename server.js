@@ -37,6 +37,24 @@ app.use((req, res, next) => {
 
 app.use(express.static("public"));
 
+const activeVisitors = new Map();
+
+// API endpoint for live visitors
+app.get("/api/visitors", (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress;
+  const now = Date.now();
+  activeVisitors.set(ip, now);
+
+  // Clean up visitors older than 6 minutes (allowing a little buffer over the 5 min polling)
+  for (const [visitorIp, lastSeen] of activeVisitors.entries()) {
+    if (now - lastSeen > 6 * 60 * 1000) {
+      activeVisitors.delete(visitorIp);
+    }
+  }
+
+  res.json({ count: activeVisitors.size });
+});
+
 const db = sqlite("trip.db");
 
 // Initialize database

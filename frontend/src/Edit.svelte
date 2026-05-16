@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import L from "leaflet";
   import { getSharedMap } from "./sharedMap";
+  import TopBar from "./TopBar.svelte";
 
   let mapContainer: HTMLDivElement;
   let map: L.Map;
@@ -111,9 +112,12 @@
   }
 </script>
 
-<div class="controls">
-  <h1>Edit Mode</h1>
-  <div class="buttons">
+<TopBar 
+  title="Edit Mode" 
+  showVisitorCount={false}
+  statusText="Click map to add a pin. Drag a pin to move it."
+>
+  <svelte:fragment slot="buttons">
     <button
       class="btn"
       style="background-color: #28a745;"
@@ -124,8 +128,7 @@
       class="btn"
       style="text-decoration:none; background-color: #6c757d;">Back to Map</a
     >
-  </div>
-  <div class="status">Click map to add a pin. Drag a pin to move it.</div>
-</div>
+  </svelte:fragment>
+</TopBar>
 
 <div class="map" bind:this={mapContainer}></div>

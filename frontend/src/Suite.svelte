@@ -4,6 +4,7 @@
   import { getSharedMap } from "./sharedMap";
   import { fetchAndRenderAttractions } from "./attractions";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
+  import TopBar from "./TopBar.svelte";
 
   interface LocationData {
     id: number;
@@ -476,15 +477,13 @@
   }
 </script>
 
-<div class="controls">
-  <div style="display:flex; align-items:center; gap:10px;">
-    <button
-      class="sidebar-toggle-btn"
-      on:click={() => (sidebarExpanded = !sidebarExpanded)}>☰ Places</button
-    >
-    <h1 style="margin:0;">Trip Tracker</h1>
-  </div>
-  <div class="buttons">
+<TopBar 
+  title="Trip Tracker" 
+  showSidebarToggle={true} 
+  statusText={gpsStatus}
+  on:toggleSidebar={() => (sidebarExpanded = !sidebarExpanded)}
+>
+  <svelte:fragment slot="buttons">
     {#if !isTracking}
       <button class="btn" on:click={startTracking}>Start Tracking</button>
     {:else}
@@ -513,9 +512,8 @@
       style="text-decoration:none; background-color:#ffc107; color:black;"
       >Leave</a
     >
-  </div>
-  <div class="status">{gpsStatus}</div>
-</div>
+  </svelte:fragment>
+</TopBar>
 
 <div class="main-content">
   <div class="sidebar {sidebarExpanded ? 'expanded' : ''}">
