@@ -16,8 +16,9 @@ app.use((req, res, next) => {
   const isFile = req.path.includes(".");
   const isPublicApi =
     req.path.startsWith("/api/") && req.method === "GET";
+    const isPreflight = req.method === "OPTIONS";
 
-  if (!isHome && !isFile && !isPublicApi) {
+    if (!isHome && !isFile && !isPublicApi && !isPreflight) {
     const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
     const [login, password] = Buffer.from(b64auth, "base64")
       .toString()
