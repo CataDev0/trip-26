@@ -154,7 +154,7 @@ h1 {
 
 .current-pos-btn {
   position: absolute;
-  bottom: 20px;
+  bottom: calc(30px + env(safe-area-inset-bottom, 0px));
   right: 20px;
   z-index: 1000;
   padding: 10px 15px;
@@ -177,7 +177,7 @@ h1 {
 /* Waze-style Speedometer */
 .waze-speedometer {
   position: absolute;
-  bottom: 20px;
+  bottom: calc(30px + env(safe-area-inset-bottom, 0px));
   left: 20px;
   z-index: 1000;
   width: 80px;
@@ -221,7 +221,7 @@ h1 {
 
 .speed-limit-sign {
   position: absolute;
-  top: 0;
+  top: -15px; /* Peaks out above the speedometer */
   right: -15px;
   width: 40px;
   height: 40px;
