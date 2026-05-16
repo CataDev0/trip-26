@@ -23,7 +23,12 @@
   let watchId: number | null = null;
   let isTracking: boolean = false;
   let gpsStatus: string = "GPS: Not tracking";
+  let currentSpeedKmH: string = "--";
+  let currentSpeedLimit: number | null = null;
+  let autoFollow: boolean = true;
   let wakeLock: any = null; // WakeLockSentinel
+  
+  let lastSpeedLimitFetch = 0;
   let offlineQueue: {lat: number, lng: number}[] = JSON.parse(localStorage.getItem('gpsOfflineQueue') || '[]');
   let findingAttractions: boolean = false;
   let sidebarExpanded: boolean = false;
@@ -47,6 +52,12 @@
     currentZoom = map.getZoom() || 13;
     map.on("zoomend", () => {
       currentZoom = map.getZoom();
+    });
+
+    map.on("dragstart", () => {
+      if (isTracking) {
+        autoFollow = false;
+      }
     });
 
     // Append the persistent map container to this specific view's map wrapper
@@ -301,6 +312,17 @@
     }
   }
 
+  async function fetchSpeedLimit(lat: number, lng: number) {
+    try {
+      const res = await fetch(`/api/speed-limit?lat=${lat}&lng=${lng}`);
+      if (!res.ok) throw new Error("Proxy failed");
+      const data = await res.json();
+      currentSpeedLimit = data.speedLimit;
+    } catch (e) {
+      console.error("Failed to fetch speed limit from proxy", e);
+    }
+  }
+
   function startTracking() {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser");
@@ -317,8 +339,22 @@
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         const accuracy = position.coords.accuracy;
+        const speed = position.coords.speed; // meters per second
 
         gpsStatus = `GPS: Tracking (${accuracy.toFixed(1)}m accuracy)`;
+        if (speed !== null && speed !== undefined) {
+          const kmh = speed * 3.6;
+          currentSpeedKmH = kmh.toFixed(0); // Waze uses whole numbers
+
+          // Only poll API every 15 seconds, and only if driving over 10 km/h to save API quota
+          if (kmh > 10 && Date.now() - lastSpeedLimitFetch > 15000) {
+            lastSpeedLimitFetch = Date.now();
+            fetchSpeedLimit(lat, lng);
+          }
+
+        } else {
+          currentSpeedKmH = "--";
+        }
 
         if (accuracy > 20) {
           return; // Skip drawing/saving if accuracy is too low
@@ -333,9 +369,10 @@
             opacity: 1,
             fillOpacity: 0.8,
           }).addTo(map);
-          map.setView([lat, lng], 15);
+          if (autoFollow) map.setView([lat, lng], 15);
         } else {
           currentPositionMarker.setLatLng([lat, lng]);
+          if (autoFollow) map.setView([lat, lng]);
         }
 
         const lastPoint = gpsPath[gpsPath.length - 1];
@@ -394,10 +431,22 @@
       wakeLock.release().then(() => { wakeLock = null; });
     }
     isTracking = false;
+    currentSpeedKmH = "--";
+    currentSpeedLimit = null;
+    autoFollow = true;
     gpsStatus = "GPS: Stopped";
     if (currentPositionMarker) {
       map.removeLayer(currentPositionMarker);
       currentPositionMarker = null;
+    }
+  }
+
+  function centerOnCurrentPos() {
+    if (currentPositionMarker) {
+      autoFollow = true;
+      map.setView(currentPositionMarker.getLatLng(), 15);
+    } else {
+      alert("No GPS position available yet.");
     }
   }
 
@@ -509,5 +558,33 @@
     class="map"
     bind:this={mapContainer}
     on:click={() => (sidebarExpanded = false)}
-  ></div>
+  >
+    {#if isTracking}
+      <!-- Waze-style Speedometer -->
+      <div 
+        class="waze-speedometer {currentSpeedLimit && parseInt(currentSpeedKmH) > currentSpeedLimit ? 'over-speed' : ''}"
+        on:click={() => {
+          // Placeholder for clicking to manually set a speed limit or report it
+          // currentSpeedLimit = 80;
+        }}
+      >
+        <div class="speed-value">{currentSpeedKmH}</div>
+        <div class="speed-unit">km/h</div>
+        
+        <!-- Optional Speed Limit Sign -->
+        {#if currentSpeedLimit}
+          <div class="speed-limit-sign">
+            {currentSpeedLimit}
+          </div>
+        {/if}
+      </div>
+
+      <button
+        class="current-pos-btn {autoFollow ? 'auto-followed' : ''}"
+        on:click|stopPropagation={centerOnCurrentPos}
+      >
+        {autoFollow ? "📍 Following" : "🧭 Go to Current Pos"}
+      </button>
+    {/if}
+  </div>
 </div>

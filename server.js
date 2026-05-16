@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const sqlite = require("better-sqlite3");
 const fs = require("fs");
@@ -20,7 +21,10 @@ app.use((req, res, next) => {
       .toString()
       .split(":");
 
-    if (login === "natcotine" && password === "Norway") {
+    const expectedUser = process.env.ADMIN_USERNAME || "admin";
+    const expectedPass = process.env.ADMIN_PASSWORD || "password";
+
+    if (login === expectedUser && password === expectedPass) {
       return next();
     }
 
@@ -148,6 +152,39 @@ app.get("/api/path", (req, res) => {
     .prepare("SELECT lat, lng, timestamp FROM gps_path ORDER BY timestamp ASC")
     .all();
   res.json(pathData);
+});
+
+// Proxy route for HERE Speed Limit
+app.get("/api/speed-limit", async (req, res) => {
+  const { lat, lng } = req.query;
+  if (!lat || !lng) return res.status(400).json({ error: "Missing lat or lng" });
+
+  try {
+    const apiKey = process.env.HERE_API_KEY;
+    if (!apiKey || apiKey === "YOUR_HERE_API_KEY") {
+      return res.json({ speedLimit: null });
+    }
+
+    const offsetLng = parseFloat(lng) + 0.0001;
+    const url = `https://router.hereapi.com/v8/routes?transportMode=car&origin=${lat},${lng}&destination=${lat},${offsetLng}&return=spans&spans=speedLimit&apikey=${apiKey}`;
+    
+    // Node.js 18+ has native fetch
+    const response = await fetch(url);
+    const data = await response.json();
+
+    let speedLimit = null;
+    if (data.routes && data.routes.length > 0) {
+      const spans = data.routes[0].sections[0].spans;
+      if (spans && spans.length > 0 && spans[0].speedLimit) {
+        speedLimit = Math.round(spans[0].speedLimit * 3.6);
+      }
+    }
+    
+    res.json({ speedLimit });
+  } catch (error) {
+    console.error("Speed limit proxy error:", error);
+    res.status(500).json({ error: "Failed to fetch speed limit" });
+  }
 });
 
 // Update locations based on UI edits
