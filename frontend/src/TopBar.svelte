@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from "svelte";
+  import { API_BASE } from "./Constants";
+  import LoginModal from "./LoginModal.svelte";
 
   export let title: string;
   export let showSidebarToggle: boolean = false;
@@ -56,3 +58,4 @@
     <div class="status">{statusText}</div>
   {/if}
 </div>
+<LoginModal />

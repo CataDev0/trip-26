@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
-import { API_BASE, AUTH_HEADER } from "./Constants";
+  import { API_BASE } from "./Constants";
+  import { authFetch } from "./auth";
   import { getSharedMap } from "./sharedMap";
   import TopBar from "./TopBar.svelte";
 
@@ -96,9 +97,9 @@ import { API_BASE, AUTH_HEADER } from "./Constants";
 
   async function saveChanges() {
     try {
-      const res = await fetch(API_BASE + "/api/locations", {
+      const res = await authFetch(API_BASE + "/api/locations", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...AUTH_HEADER },
+        headers: { "Content-Type": "application/json" },
         // Only strip out 'id' just in case. Ensure clean lat/lng and name.
         body: JSON.stringify(
           locations.map((l) => ({ name: l.name, lat: l.lat, lng: l.lng })),
@@ -113,8 +114,8 @@ import { API_BASE, AUTH_HEADER } from "./Constants";
   }
 </script>
 
-<TopBar 
-  title="Edit Mode" 
+<TopBar
+  title="Edit Mode"
   showVisitorCount={false}
   statusText="Click map to add a pin. Drag a pin to move it."
 >

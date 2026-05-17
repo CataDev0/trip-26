@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
-import { API_BASE } from "./Constants";
+  import { API_BASE } from "./Constants";
   import { getSharedMap } from "./sharedMap";
   import { fetchAndRenderAttractions } from "./attractions";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";

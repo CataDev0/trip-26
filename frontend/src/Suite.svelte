@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
-import { API_BASE, AUTH_HEADER } from "./Constants";
+import { API_BASE } from "./Constants";
+  import { authFetch } from "./auth";
   import { Capacitor, registerPlugin } from "@capacitor/core";
   import type { BackgroundGeolocationPlugin } from "@capacitor-community/background-geolocation";
   import { getSharedMap } from "./sharedMap";
@@ -77,9 +78,9 @@ import { API_BASE, AUTH_HEADER } from "./Constants";
     // Create global function for popup buttons
     (window as any).markVisited = async (id: number) => {
       try {
-        await fetch(API_BASE + "/api/visited", {
+        await authFetch(API_BASE + "/api/visited", {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...AUTH_HEADER },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id }),
         });
 
@@ -105,9 +106,9 @@ import { API_BASE, AUTH_HEADER } from "./Constants";
       lng: number,
     ) => {
       try {
-        const res = await fetch(API_BASE + "/api/locations/single", {
+        const res = await authFetch(API_BASE + "/api/locations/single", {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...AUTH_HEADER },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, lat, lng }),
         });
 
@@ -290,9 +291,9 @@ import { API_BASE, AUTH_HEADER } from "./Constants";
   async function flushOfflineQueue() {
     if (offlineQueue.length === 0) return;
     try {
-      const res = await fetch(API_BASE + "/api/path", {
+      const res = await authFetch(API_BASE + "/api/path", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...AUTH_HEADER },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(offlineQueue),
       });
       if (res.ok) {
@@ -379,9 +380,9 @@ import { API_BASE, AUTH_HEADER } from "./Constants";
         }
 
         try {
-          const res = await fetch(API_BASE + "/api/path", {
+          const res = await authFetch(API_BASE + "/api/path", {
             method: "POST",
-            headers: { "Content-Type": "application/json", ...AUTH_HEADER },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ lat, lng }),
           });
           if (!res.ok) throw new Error("Failed");
