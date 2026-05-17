@@ -10,6 +10,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const earthRadius = 6371000;
+  const toRadians = (degrees) => (degrees * Math.PI) / 180;
+  const deltaLat = toRadians(lat2 - lat1);
+  const deltaLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(deltaLng / 2) *
+      Math.sin(deltaLng / 2);
+  return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // Simple Basic Authentication Middleware
 app.use((req, res, next) => {
   const isHome = req.path === "/";
@@ -155,10 +169,22 @@ app.post("/api/path", (req, res) => {
   if (points.length === 0) return res.status(400).json({ error: "No points provided" });
 
   const insert = db.prepare("INSERT INTO gps_path (lat, lng) VALUES (?, ?)");
+  const lastRow = db.prepare("SELECT lat, lng FROM gps_path ORDER BY id DESC LIMIT 1").get();
+  let lastLat = lastRow ? lastRow.lat : null;
+  let lastLng = lastRow ? lastRow.lng : null;
   const insertMany = db.transaction((pts) => {
     for (const pt of pts) {
       if (pt.lat !== undefined && pt.lng !== undefined) {
+        if (lastLat !== null && lastLng !== null) {
+          const distance = haversineMeters(lastLat, lastLng, pt.lat, pt.lng);
+          if (distance < 5) {
+            continue;
+          }
+        }
+
         insert.run(pt.lat, pt.lng);
+        lastLat = pt.lat;
+        lastLng = pt.lng;
       }
     }
   });

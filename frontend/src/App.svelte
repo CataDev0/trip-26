@@ -15,6 +15,12 @@
     imageUrl?: string;
   }
 
+  interface PathPoint {
+    lat: number;
+    lng: number;
+    timestamp?: string;
+  }
+
   let map: L.Map;
   let mapContainer: HTMLDivElement;
   let locations: LocationData[] = [];
@@ -66,8 +72,8 @@
       visitedIds = new Set(visited);
 
       const pathRes = await fetch(API_BASE + "/api/path");
-      const pathData = await pathRes.json();
-      gpsPath = pathData.map((p: LocationData) => [p.lat, p.lng]);
+      const pathData: PathPoint[] = await pathRes.json();
+      gpsPath = getLatestTripSegment(pathData);
 
       renderLocations();
       renderPath();
@@ -170,6 +176,27 @@
       }
       pathLayerGroup = L.layerGroup(segments).addTo(map);
     }
+  }
+
+  function getLatestTripSegment(pathData: PathPoint[]): [number, number][] {
+    if (pathData.length === 0) {
+      return [];
+    }
+
+    const segmentBreakMs = 30 * 60 * 1000;
+    let lastBreakIndex = 0;
+
+    for (let i = 1; i < pathData.length; i++) {
+      const currentTime = Date.parse(pathData[i].timestamp || "");
+      const previousTime = Date.parse(pathData[i - 1].timestamp || "");
+      if (Number.isFinite(currentTime) && Number.isFinite(previousTime)) {
+        if (currentTime - previousTime > segmentBreakMs) {
+          lastBreakIndex = i;
+        }
+      }
+    }
+
+    return pathData.slice(lastBreakIndex).map((point): [number, number] => [point.lat, point.lng]);
   }
 
   async function findAttractions() {
