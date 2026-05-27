@@ -33,7 +33,7 @@ import { API_BASE } from "./Constants";
   let gpsPath: [number, number][] = [];
   let pathLayerGroup: L.LayerGroup | null = null;
   let currentPositionMarker: L.CircleMarker | null = null;
-  let watchId: string | null = null;
+  let watchId: number | string | null = null;
   let isTracking: boolean = false;
   let gpsStatus: string = "GPS: Not tracking";
   let currentSpeedKmH: string = "--";
@@ -360,7 +360,7 @@ import { API_BASE } from "./Constants";
     requestWakeLock();
     flushOfflineQueue(); // Try to flush any old points when we start
 
-    const onPositionUpdate = async (lat, lng, accuracy, speed) => {
+    const onPositionUpdate = async (lat: number, lng: number, accuracy: number, speed: number | null | undefined) => {
       gpsStatus = `GPS: Tracking (${accuracy.toFixed(1)}m accuracy)`;
       if (speed !== null && speed !== undefined) {
         const kmh = speed * 3.6;
@@ -469,7 +469,7 @@ import { API_BASE } from "./Constants";
   function stopTracking() {
     if (watchId !== null) {
       if (Capacitor.isNativePlatform()) {
-        BackgroundGeolocation.removeWatcher({ id: watchId });
+        BackgroundGeolocation.removeWatcher({ id: String(watchId) });
       } else {
         navigator.geolocation.clearWatch(watchId as any);
       }
