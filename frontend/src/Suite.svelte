@@ -9,30 +9,22 @@
   import { fetchAndRenderAttractions } from "./attractions";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
   import TopBar from "./TopBar.svelte";
+  import {
+    loadMapBootstrapData,
+    type LocationData,
+    type PathPoint,
+  } from "./mapData";
+  import { renderTripPath, toLatLngPath } from "./tripPath";
 
   const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>(
     "BackgroundGeolocation",
   );
 
-  interface LocationData {
-    id: number;
-    name: string;
-    lat: number;
-    lng: number;
-    imageUrl?: string;
-  }
-
-  interface PathPoint {
-    lat: number;
-    lng: number;
-    timestamp?: string;
-  }
-
   let map: L.Map;
   let mapContainer: HTMLDivElement;
   let locations: LocationData[] = [];
   let visitedIds: Set<number> = new Set();
-  let gpsPath: [number, number][] = [];
+  let gpsPath: PathPoint[] = [];
   let pathLayerGroup: L.LayerGroup | null = null;
   let currentPositionMarker: L.CircleMarker | null = null;
   let watchId: number | string | null = null;
@@ -164,16 +156,10 @@
 
   async function loadData() {
     try {
-      const locRes = await fetch(API_BASE + "/api/locations");
-      locations = await locRes.json();
-
-      const visRes = await fetch(API_BASE + "/api/visited");
-      const visited = await visRes.json();
-      visitedIds = new Set(visited);
-
-      const pathRes = await fetch(API_BASE + "/api/path");
-      const pathData: PathPoint[] = await pathRes.json();
-      gpsPath = getLatestTripSegment(pathData);
+      const data = await loadMapBootstrapData();
+      locations = data.locations;
+      visitedIds = data.visitedIds;
+      gpsPath = data.pathData;
 
       renderLocations();
       renderPath();
@@ -186,7 +172,7 @@
             prev.id > current.id ? prev : current,
           );
           map.setView([latestVisited.lat, latestVisited.lng], 13);
-        } else if (locations.length > 0) {
+          map.fitBounds(L.latLngBounds(toLatLngPath(gpsPath)));
           const firstLoc = locations.reduce((prev, current) =>
             prev.id < current.id ? prev : current,
           );
@@ -411,12 +397,15 @@
       const lastPoint = gpsPath[gpsPath.length - 1];
       let shouldSave = true;
       if (lastPoint) {
-        const dist = map.distance([lat, lng], lastPoint);
+        const dist = map.distance([lat, lng], [lastPoint.lat, lastPoint.lng]);
         if (dist < 15) shouldSave = false;
       }
 
       if (shouldSave) {
-        gpsPath = [...gpsPath, [lat, lng]];
+        gpsPath = [
+          ...gpsPath,
+          { lat, lng, timestamp: new Date().toISOString() },
+        ];
         renderPath();
 
         if (offlineQueue.length > 0) {

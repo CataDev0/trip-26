@@ -1,31 +1,18 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
-  import { API_BASE } from "./Constants";
   import { getSharedMap } from "./sharedMap";
   import { fetchAndRenderAttractions } from "./attractions";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
   import TopBar from "./TopBar.svelte";
-
-  interface LocationData {
-    id: number;
-    name: string;
-    lat: number;
-    lng: number;
-    imageUrl?: string;
-  }
-
-  interface PathPoint {
-    lat: number;
-    lng: number;
-    timestamp?: string;
-  }
+  import { loadMapBootstrapData, type LocationData, type PathPoint } from "./mapData";
+  import { renderTripPath, toLatLngPath } from "./tripPath";
 
   let map: L.Map;
   let mapContainer: HTMLDivElement;
   let locations: LocationData[] = [];
   let visitedIds: Set<number> = new Set();
-  let gpsPath: [number, number][] = [];
+  let gpsPath: PathPoint[] = [];
   let pathLayerGroup: L.LayerGroup | null = null;
   let findingAttractions: boolean = false;
   let sidebarExpanded: boolean = false;
@@ -64,22 +51,16 @@
 
   async function loadData() {
     try {
-      const locRes = await fetch(API_BASE + "/api/locations");
-      locations = await locRes.json();
-
-      const visRes = await fetch(API_BASE + "/api/visited");
-      const visited = await visRes.json();
-      visitedIds = new Set(visited);
-
-      const pathRes = await fetch(API_BASE + "/api/path");
-      const pathData: PathPoint[] = await pathRes.json();
-      gpsPath = getLatestTripSegment(pathData);
+      const data = await loadMapBootstrapData();
+      locations = data.locations;
+      visitedIds = data.visitedIds;
+      gpsPath = data.pathData;
 
       renderLocations();
       renderPath();
 
       if (gpsPath.length > 0) {
-        map.fitBounds(L.latLngBounds(gpsPath));
+        map.fitBounds(L.latLngBounds(toLatLngPath(gpsPath)));
       } else if (locations.length > 0) {
         const group: L.FeatureGroup = new L.featureGroup(Object.values(markers));
         map.fitBounds(group.getBounds());
@@ -199,6 +180,7 @@
     return pathData
       .slice(lastBreakIndex)
       .map((point): [number, number] => [point.lat, point.lng]);
+    pathLayerGroup = renderTripPath(map, gpsPath, pathLayerGroup);
   }
 
   async function findAttractions() {

@@ -8,7 +8,7 @@ const os = require("os");
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const earthRadius = 6371000;
@@ -242,6 +242,28 @@ app.post("/api/path/normalize", (req, res) => {
   })();
 
   res.json({ success: true, removed });
+// Replace the full GPS path
+app.put("/api/path", (req, res) => {
+  const points = req.body;
+  if (!Array.isArray(points)) return res.status(400).json({ error: "Points must be an array" });
+
+  const insert = db.prepare("INSERT INTO gps_path (lat, lng, timestamp) VALUES (?, ?, ?)");
+
+  try {
+    db.transaction((pts) => {
+      db.prepare("DELETE FROM gps_path").run();
+      for (const pt of pts) {
+        if (pt.lat !== undefined && pt.lng !== undefined) {
+          // Keep existing timestamp if provided, otherwise it will use default via sqlite although we pass undefined
+          insert.run(pt.lat, pt.lng, pt.timestamp || new Date().toISOString());
+        }
+      }
+    })(points);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Could not save updated path" });
+  }
 });
 
 // Proxy route for HERE Speed Limit
