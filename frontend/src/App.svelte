@@ -137,7 +137,7 @@
         ${
           isVisited
             ? '<span style="color:#28a745;font-weight:bold;">✓ Visited</span>'
-            : ''
+            : ""
         }
       </div>
     `;
@@ -166,12 +166,12 @@
       for (let i = 0; i < len - 1; i++) {
         // Gradient from Purple (oldest) to Bright Green (newest)
         const fraction = i / (len - 1);
-        const hue = 280 - (fraction * 160); // 280 -> 120
+        const hue = 280 - fraction * 160; // 280 -> 120
         segments.push(
           L.polyline([gpsPath[i], gpsPath[i + 1]], {
             color: `hsl(${hue}, 100%, 50%)`,
-            weight: 5
-          })
+            weight: 5,
+          }),
         );
       }
       pathLayerGroup = L.layerGroup(segments).addTo(map);
@@ -196,7 +196,9 @@
       }
     }
 
-    return pathData.slice(lastBreakIndex).map((point): [number, number] => [point.lat, point.lng]);
+    return pathData
+      .slice(lastBreakIndex)
+      .map((point): [number, number] => [point.lat, point.lng]);
   }
 
   async function findAttractions() {
@@ -225,9 +227,9 @@
   }
 </script>
 
-<TopBar 
-  title="Trip Tracker V1" 
-  showSidebarToggle={true} 
+<TopBar
+  title="Trip Tracker V1"
+  showSidebarToggle={true}
   on:toggleSidebar={() => (sidebarExpanded = !sidebarExpanded)}
 >
   <svelte:fragment slot="buttons">

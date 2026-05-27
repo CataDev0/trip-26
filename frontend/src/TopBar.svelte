@@ -23,7 +23,7 @@
           console.error("Failed to fetch visitors", e);
         }
       };
-      
+
       fetchVisitors();
       const visitorInterval = setInterval(fetchVisitors, 5 * 60 * 1000);
 
@@ -39,14 +39,16 @@
     {#if showSidebarToggle}
       <button
         class="sidebar-toggle-btn"
-        on:click={() => dispatch('toggleSidebar')}
+        on:click={() => dispatch("toggleSidebar")}
       >
         ☰ Places
       </button>
     {/if}
     <h1 style="margin:0;">{title}</h1>
     {#if showVisitorCount}
-      <span style="font-size: 0.9em; color: #555; background: #eee; padding: 2px 8px; border-radius: 12px; white-space: nowrap;">
+      <span
+        style="font-size: 0.9em; color: #555; background: #eee; padding: 2px 8px; border-radius: 12px; white-space: nowrap;"
+      >
         Live counter: {visitorCount}
       </span>
     {/if}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
-import { API_BASE } from "./Constants";
+  import { API_BASE } from "./Constants";
   import { authFetch } from "./auth";
   import { Capacitor, registerPlugin } from "@capacitor/core";
   import type { BackgroundGeolocationPlugin } from "@capacitor-community/background-geolocation";
@@ -10,7 +10,9 @@ import { API_BASE } from "./Constants";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
   import TopBar from "./TopBar.svelte";
 
-  const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>("BackgroundGeolocation");
+  const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>(
+    "BackgroundGeolocation",
+  );
 
   interface LocationData {
     id: number;
@@ -40,9 +42,11 @@ import { API_BASE } from "./Constants";
   let currentSpeedLimit: number | null = null;
   let autoFollow: boolean = true;
   let wakeLock: any = null; // WakeLockSentinel
-  
+
   let lastSpeedLimitFetch = 0;
-  let offlineQueue: {lat: number, lng: number}[] = JSON.parse(localStorage.getItem('gpsOfflineQueue') || '[]');
+  let offlineQueue: { lat: number; lng: number }[] = JSON.parse(
+    localStorage.getItem("gpsOfflineQueue") || "[]",
+  );
   let findingAttractions: boolean = false;
   let sidebarExpanded: boolean = false;
   let currentZoom: number = 13;
@@ -140,15 +144,19 @@ import { API_BASE } from "./Constants";
     };
 
     const handleVisibilityChange = () => {
-      if (wakeLock !== null && document.visibilityState === 'visible' && isTracking) {
+      if (
+        wakeLock !== null &&
+        document.visibilityState === "visible" &&
+        isTracking
+      ) {
         requestWakeLock();
       }
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     await loadData();
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       delete (window as any).markVisited;
       delete (window as any).saveAttraction;
     };
@@ -279,12 +287,12 @@ import { API_BASE } from "./Constants";
       for (let i = 0; i < len - 1; i++) {
         // Gradient from Purple (oldest) to Bright Green (newest)
         const fraction = i / (len - 1);
-        const hue = 280 - (fraction * 160); // 280 -> 120
+        const hue = 280 - fraction * 160; // 280 -> 120
         segments.push(
           L.polyline([gpsPath[i], gpsPath[i + 1]], {
             color: `hsl(${hue}, 100%, 50%)`,
-            weight: 5
-          })
+            weight: 5,
+          }),
         );
       }
       pathLayerGroup = L.layerGroup(segments).addTo(map);
@@ -309,7 +317,9 @@ import { API_BASE } from "./Constants";
       }
     }
 
-    return pathData.slice(lastBreakIndex).map((point): [number, number] => [point.lat, point.lng]);
+    return pathData
+      .slice(lastBreakIndex)
+      .map((point): [number, number] => [point.lat, point.lng]);
   }
 
   async function flushOfflineQueue() {
@@ -322,7 +332,7 @@ import { API_BASE } from "./Constants";
       });
       if (res.ok) {
         offlineQueue = [];
-        localStorage.setItem('gpsOfflineQueue', '[]');
+        localStorage.setItem("gpsOfflineQueue", "[]");
       }
     } catch (e) {
       console.log("Still offline, queue length:", offlineQueue.length);
@@ -330,13 +340,13 @@ import { API_BASE } from "./Constants";
   }
 
   async function requestWakeLock() {
-    if ('wakeLock' in navigator) {
+    if ("wakeLock" in navigator) {
       try {
-        wakeLock = await (navigator as any).wakeLock.request('screen');
-        wakeLock.addEventListener('release', () => {
-          console.log('Screen Wake Lock was released');
+        wakeLock = await (navigator as any).wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => {
+          console.log("Screen Wake Lock was released");
         });
-        console.log('Screen Wake Lock is active');
+        console.log("Screen Wake Lock is active");
       } catch (err: any) {
         console.error(`${err.name}, ${err.message}`);
       }
@@ -345,7 +355,9 @@ import { API_BASE } from "./Constants";
 
   async function fetchSpeedLimit(lat: number, lng: number) {
     try {
-      const res = await fetch(API_BASE + `/api/speed-limit?lat=${lat}&lng=${lng}`);
+      const res = await fetch(
+        API_BASE + `/api/speed-limit?lat=${lat}&lng=${lng}`,
+      );
       if (!res.ok) throw new Error("Proxy failed");
       const data = await res.json();
       currentSpeedLimit = data.speedLimit;
@@ -360,11 +372,16 @@ import { API_BASE } from "./Constants";
     requestWakeLock();
     flushOfflineQueue(); // Try to flush any old points when we start
 
-    const onPositionUpdate = async (lat: number, lng: number, accuracy: number, speed: number | null | undefined) => {
+    const onPositionUpdate = async (
+      lat: number,
+      lng: number,
+      accuracy: number,
+      speed: number | null | undefined,
+    ) => {
       gpsStatus = `GPS: Tracking (${accuracy.toFixed(1)}m accuracy)`;
       if (speed !== null && speed !== undefined) {
         const kmh = speed * 3.6;
-        currentSpeedKmH = kmh.toFixed(0); 
+        currentSpeedKmH = kmh.toFixed(0);
 
         if (kmh > 10 && Date.now() - lastSpeedLimitFetch > 15000) {
           lastSpeedLimitFetch = Date.now();
@@ -378,7 +395,12 @@ import { API_BASE } from "./Constants";
 
       if (!currentPositionMarker) {
         currentPositionMarker = L.circleMarker([lat, lng], {
-          radius: 8, fillColor: "#ff7800", color: "#000", weight: 1, opacity: 1, fillOpacity: 0.8,
+          radius: 8,
+          fillColor: "#ff7800",
+          color: "#000",
+          weight: 1,
+          opacity: 1,
+          fillOpacity: 0.8,
         }).addTo(map);
         if (autoFollow) map.setView([lat, lng], 15);
       } else {
@@ -413,7 +435,7 @@ import { API_BASE } from "./Constants";
         } catch (e) {
           console.error("Failed to save to DB, queueing offline", e);
           offlineQueue.push({ lat, lng });
-          localStorage.setItem('gpsOfflineQueue', JSON.stringify(offlineQueue));
+          localStorage.setItem("gpsOfflineQueue", JSON.stringify(offlineQueue));
         }
       }
     };
@@ -425,7 +447,7 @@ import { API_BASE } from "./Constants";
           backgroundTitle: "Trip Tracker Running",
           requestPermissions: true,
           stale: false,
-          distanceFilter: 2
+          distanceFilter: 2,
         },
         async (position, error) => {
           if (error) {
@@ -435,8 +457,13 @@ import { API_BASE } from "./Constants";
             return;
           }
           if (!position) return;
-          onPositionUpdate(position.latitude, position.longitude, position.accuracy || 0, position.speed || null);
-        }
+          onPositionUpdate(
+            position.latitude,
+            position.longitude,
+            position.accuracy || 0,
+            position.speed || null,
+          );
+        },
       );
     } else {
       if (!navigator.geolocation) {
@@ -449,7 +476,7 @@ import { API_BASE } from "./Constants";
             position.coords.latitude,
             position.coords.longitude,
             position.coords.accuracy,
-            position.coords.speed
+            position.coords.speed,
           );
         },
         (error) => {
@@ -461,7 +488,7 @@ import { API_BASE } from "./Constants";
           gpsStatus = `GPS Error: ${msg}`;
           stopTracking();
         },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 },
       );
     }
   }
@@ -476,7 +503,9 @@ import { API_BASE } from "./Constants";
       watchId = null;
     }
     if (wakeLock !== null) {
-      wakeLock.release().then(() => { wakeLock = null; });
+      wakeLock.release().then(() => {
+        wakeLock = null;
+      });
     }
     isTracking = false;
     currentSpeedKmH = "--";
@@ -524,9 +553,9 @@ import { API_BASE } from "./Constants";
   }
 </script>
 
-<TopBar 
-  title="Trip Tracker" 
-  showSidebarToggle={true} 
+<TopBar
+  title="Trip Tracker"
+  showSidebarToggle={true}
   statusText={gpsStatus}
   on:toggleSidebar={() => (sidebarExpanded = !sidebarExpanded)}
 >
@@ -606,8 +635,11 @@ import { API_BASE } from "./Constants";
   >
     {#if isTracking}
       <!-- Waze-style Speedometer -->
-      <div 
-        class="waze-speedometer {currentSpeedLimit && parseInt(currentSpeedKmH) > currentSpeedLimit ? 'over-speed' : ''}"
+      <div
+        class="waze-speedometer {currentSpeedLimit &&
+        parseInt(currentSpeedKmH) > currentSpeedLimit
+          ? 'over-speed'
+          : ''}"
         on:click={() => {
           // Placeholder for clicking to manually set a speed limit or report it
           // currentSpeedLimit = 80;
@@ -615,7 +647,7 @@ import { API_BASE } from "./Constants";
       >
         <div class="speed-value">{currentSpeedKmH}</div>
         <div class="speed-unit">km/h</div>
-        
+
         <!-- Optional Speed Limit Sign -->
         {#if currentSpeedLimit}
           <div class="speed-limit-sign">

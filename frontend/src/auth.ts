@@ -61,7 +61,7 @@ export async function authFetch(url: string, options: any = {}) {
     ...options.headers,
     ...headers
   };
-  
+
   const res = await fetch(url, options);
   if (res.status === 401) {
     if (typeof window !== "undefined") {
