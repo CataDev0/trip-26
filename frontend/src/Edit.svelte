@@ -10,6 +10,13 @@
   let map: L.Map;
   let locations: any[] = [];
   let markers: L.Layer[] | undefined = [];
+  
+  let mode: "pins" | "normalize" = "pins";
+  let selectStart: L.LatLng | null = null;
+  let selectEnd: L.LatLng | null = null;
+  let selectionRect: L.Rectangle | null = null;
+  let pathLines: L.Polyline[] = [];
+  let statusText = "Click map to add a pin. Drag a pin to move it.";
 
   const defaultIcon = new L.Icon.Default();
 
@@ -25,16 +32,34 @@
       map.invalidateSize();
     }, 10);
     await loadLocations();
+    await loadPath();
 
     // Map click adds new location visually
     map.on("click", (e) => {
-      const newLoc = {
-        name: "New Location",
-        lat: e.latlng.lat,
-        lng: e.latlng.lng,
-      };
-      locations = [...locations, newLoc];
-      renderLocations();
+      if (mode === "pins") {
+        const newLoc = {
+          name: "New Location",
+          lat: e.latlng.lat,
+          lng: e.latlng.lng,
+        };
+        locations = [...locations, newLoc];
+        renderLocations();
+      } else if (mode === "normalize") {
+        if (!selectStart) {
+          selectStart = e.latlng;
+          selectEnd = null;
+          if (selectionRect) map.removeLayer(selectionRect);
+          selectionRect = null;
+          statusText = "Click again to finish the normalization zone.";
+        } else {
+          selectEnd = e.latlng;
+          const bounds = L.latLngBounds(selectStart, selectEnd);
+          if (selectionRect) map.removeLayer(selectionRect);
+          selectionRect = L.rectangle(bounds, {color: "#ff7800", weight: 2}).addTo(map);
+          statusText = "Zone selected! Click 'Apply Normalization' or click again to draw a new zone.";
+          selectStart = null; // reset for next box
+        }
+      }
     });
 
     // Global hooks inside popup HTML snippets
@@ -54,13 +79,26 @@
     };
   });
 
+  async function loadPath() {
+    const res = await fetch(API_BASE + "/api/path");
+    const data = await res.json();
+    const pts = data.map((d: any) => [d.lat, d.lng] as [number, number]);
+    if (pts.length > 0) {
+      if (pathLines.length) {
+        pathLines.forEach(l => map.removeLayer(l));
+        pathLines = [];
+      }
+      pathLines.push(L.polyline(pts, { color: 'blue', weight: 3, opacity: 0.5 }).addTo(map));
+    }
+  }
+
   async function loadLocations() {
     const res = await fetch(API_BASE + "/api/locations");
     locations = await res.json();
     renderLocations();
 
     if (markers && markers.length > 0) {
-      const group = new L.featureGroup(markers);
+      const group: L.FeatureGroup = new L.featureGroup(markers);
       map.fitBounds(group.getBounds());
     }
   }
@@ -112,23 +150,101 @@
       console.error(e);
     }
   }
+
+  async function normalizePath() {
+    let confirmMsg = "This will clean up your ENTIRE GPS history by removing jitter and duplicate points. Continue?";
+    let bodyData: any = {};
+    if (mode === "normalize" && selectionRect) {
+      confirmMsg = "This will clean up the GPS history inside your selected zone ONLY. Continue?";
+      const bounds = selectionRect.getBounds();
+      bodyData.bounds = {
+        minLat: bounds.getSouth(),
+        maxLat: bounds.getNorth(),
+        minLng: bounds.getWest(),
+        maxLng: bounds.getEast()
+      };
+    } else if (mode === "normalize" && !selectionRect) {
+      alert("Please draw an area on the map first, or switch to Edit Pins mode to normalize the entire path.");
+      return;
+    }
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const res = await authFetch(API_BASE + "/api/path/normalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bodyData)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Path normalized successfully! Removed ${data.removed} erratic/duplicate points.`);
+        await loadPath(); // refresh visual path
+        if (selectionRect) {
+          map.removeLayer(selectionRect);
+          selectionRect = null;
+          statusText = "Click map to set the first corner of a new normalization zone.";
+        }
+      } else {
+        alert("Failed to normalize path.");
+      }
+    } catch (e) {
+      alert("Error normalizing path.");
+      console.error(e);
+    }
+  }
+
+  function toggleMode() {
+    if (mode === "pins") {
+      mode = "normalize";
+      statusText = "Click map to set the first corner of a normalization zone.";
+    } else {
+      mode = "pins";
+      statusText = "Click map to add a pin. Drag a pin to move it.";
+      if (selectionRect) map.removeLayer(selectionRect);
+      selectionRect = null;
+      selectStart = null;
+      selectEnd = null;
+    }
+  }
 </script>
 
 <TopBar
   title="Edit Mode"
   showVisitorCount={false}
-  statusText="Click map to add a pin. Drag a pin to move it."
+  {statusText}
 >
   <svelte:fragment slot="buttons">
     <button
       class="btn"
-      style="background-color: #28a745;"
-      on:click={saveChanges}>Save Changes</button
+      style="background-color: #17a2b8; color: #fff; margin-right: 5px;"
+      on:click={toggleMode}
     >
+      {mode === "pins" ? "Switch to Normalize Mode" : "Switch to Edit Pins Mode"}
+    </button>
+    
+    {#if mode === "normalize"}
+      <button
+        class="btn"
+        style="background-color: #ff9800; color: #000; margin-right: 5px;"
+        on:click={normalizePath}>Apply Normalization</button
+      >
+    {:else}
+      <button
+        class="btn"
+        style="background-color: #ff9800; color: #000; margin-right: 5px;"
+        on:click={normalizePath}>Normalize ENTIRE Path</button
+      >
+      <button
+        class="btn"
+        style="background-color: #28a745;"
+        on:click={saveChanges}>Save Changes</button
+      >
+    {/if}
     <a
       href="/suite"
       class="btn"
-      style="text-decoration:none; background-color: #6c757d;">Back to Map</a
+      style="text-decoration:none; background-color: #6c757d; margin-left: 5px;">Back to Map</a
     >
   </svelte:fragment>
 </TopBar>

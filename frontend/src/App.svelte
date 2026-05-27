@@ -81,7 +81,7 @@
       if (gpsPath.length > 0) {
         map.fitBounds(L.latLngBounds(gpsPath));
       } else if (locations.length > 0) {
-        const group = new L.featureGroup(Object.values(markers));
+        const group: L.FeatureGroup = new L.featureGroup(Object.values(markers));
         map.fitBounds(group.getBounds());
       }
 

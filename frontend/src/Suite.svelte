@@ -412,7 +412,7 @@
       let shouldSave = true;
       if (lastPoint) {
         const dist = map.distance([lat, lng], lastPoint);
-        if (dist < 2) shouldSave = false;
+        if (dist < 15) shouldSave = false;
       }
 
       if (shouldSave) {
@@ -447,7 +447,7 @@
           backgroundTitle: "Trip Tracker Running",
           requestPermissions: true,
           stale: false,
-          distanceFilter: 2,
+          distanceFilter: 15,
         },
         async (position, error) => {
           if (error) {
@@ -554,7 +554,7 @@
 </script>
 
 <TopBar
-  title="Trip Tracker"
+  title="Trip Tracker V1"
   showSidebarToggle={true}
   statusText={gpsStatus}
   on:toggleSidebar={() => (sidebarExpanded = !sidebarExpanded)}

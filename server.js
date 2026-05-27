@@ -58,14 +58,14 @@ const activeVisitors = new Map();
 
 // API endpoint for live visitors
 app.get("/api/visitors", (req, res) => {
-  const ip = req.ip || req.socket.remoteAddress;
+  const visitorId = req.query.id || req.ip || req.socket.remoteAddress;
   const now = Date.now();
-  activeVisitors.set(ip, now);
+  activeVisitors.set(visitorId, now);
 
   // Clean up visitors older than 6 minutes (allowing a little buffer over the 5 min polling)
-  for (const [visitorIp, lastSeen] of activeVisitors.entries()) {
+  for (const [vId, lastSeen] of activeVisitors.entries()) {
     if (now - lastSeen > 6 * 60 * 1000) {
-      activeVisitors.delete(visitorIp);
+      activeVisitors.delete(vId);
     }
   }
 
@@ -196,9 +196,52 @@ app.post("/api/path", (req, res) => {
 // Get the full GPS path
 app.get("/api/path", (req, res) => {
   const pathData = db
-    .prepare("SELECT lat, lng, timestamp FROM gps_path ORDER BY timestamp ASC")
+    .prepare("SELECT id, lat, lng, timestamp FROM gps_path ORDER BY timestamp ASC")
     .all();
   res.json(pathData);
+});
+
+// Normalize the GPS path: removes duplicates and jitter
+app.post("/api/path/normalize", (req, res) => {
+  const bounds = req.body.bounds; // optional: { minLat, maxLat, minLng, maxLng }
+  
+  const points = db.prepare("SELECT id, lat, lng FROM gps_path ORDER BY timestamp ASC").all();
+  if (points.length < 2) return res.json({ success: true, removed: 0 });
+
+  let removed = 0;
+  let lastFixed = points[0];
+
+  const deleteStmt = db.prepare("DELETE FROM gps_path WHERE id = ?");
+
+  db.transaction(() => {
+    for (let i = 1; i < points.length; i++) {
+        const pt = points[i];
+        
+        let inBounds = true;
+        if (bounds) {
+          inBounds = (
+            pt.lat >= bounds.minLat && pt.lat <= bounds.maxLat &&
+            pt.lng >= bounds.minLng && pt.lng <= bounds.maxLng
+          );
+        }
+
+        if (!inBounds) {
+          lastFixed = pt;
+          continue;
+        }
+
+        const dist = haversineMeters(lastFixed.lat, lastFixed.lng, pt.lat, pt.lng);
+        // If the point is within 15 meters of the last kept point, we consider it jitter/duplicate and remove it
+        if (dist < 15) {
+            deleteStmt.run(pt.id);
+            removed++;
+        } else {
+            lastFixed = pt;
+        }
+    }
+  })();
+
+  res.json({ success: true, removed });
 });
 
 // Proxy route for HERE Speed Limit
@@ -212,7 +255,7 @@ app.get("/api/speed-limit", async (req, res) => {
       return res.json({ speedLimit: null });
     }
 
-    const offsetLng = parseFloat(lng) + 0.0001;
+    const offsetLng = parseFloat(lng) + 0.001;
     const url = `https://router.hereapi.com/v8/routes?transportMode=car&origin=${lat},${lng}&destination=${lat},${offsetLng}&return=spans&spans=speedLimit&apikey=${apiKey}`;
     
     // Node.js 18+ has native fetch

@@ -14,9 +14,15 @@
 
   onMount(() => {
     if (showVisitorCount) {
+      let visitorId = localStorage.getItem("visitorId");
+      if (!visitorId) {
+        visitorId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+        localStorage.setItem("visitorId", visitorId);
+      }
+
       const fetchVisitors = async () => {
         try {
-          const res = await fetch(API_BASE + "/api/visitors");
+          const res = await fetch(API_BASE + `/api/visitors?id=${visitorId}`);
           const data = await res.json();
           visitorCount = data.count;
         } catch (e) {
