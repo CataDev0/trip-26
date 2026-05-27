@@ -1,31 +1,18 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import L from "leaflet";
-  import { API_BASE } from "./Constants";
   import { getSharedMap } from "./sharedMap";
   import { fetchAndRenderAttractions } from "./attractions";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
   import TopBar from "./TopBar.svelte";
-
-  interface LocationData {
-    id: number;
-    name: string;
-    lat: number;
-    lng: number;
-    imageUrl?: string;
-  }
-
-  interface PathPoint {
-    lat: number;
-    lng: number;
-    timestamp?: string;
-  }
+  import { loadMapBootstrapData, type LocationData, type PathPoint } from "./mapData";
+  import { renderTripPath, toLatLngPath } from "./tripPath";
 
   let map: L.Map;
   let mapContainer: HTMLDivElement;
   let locations: LocationData[] = [];
   let visitedIds: Set<number> = new Set();
-  let gpsPath: [number, number][] = [];
+  let gpsPath: PathPoint[] = [];
   let pathLayerGroup: L.LayerGroup | null = null;
   let findingAttractions: boolean = false;
   let sidebarExpanded: boolean = false;
@@ -64,22 +51,16 @@
 
   async function loadData() {
     try {
-      const locRes = await fetch(API_BASE + "/api/locations");
-      locations = await locRes.json();
-
-      const visRes = await fetch(API_BASE + "/api/visited");
-      const visited = await visRes.json();
-      visitedIds = new Set(visited);
-
-      const pathRes = await fetch(API_BASE + "/api/path");
-      const pathData: PathPoint[] = await pathRes.json();
-      gpsPath = getLatestTripSegment(pathData);
+      const data = await loadMapBootstrapData();
+      locations = data.locations;
+      visitedIds = data.visitedIds;
+      gpsPath = data.pathData;
 
       renderLocations();
       renderPath();
 
       if (gpsPath.length > 0) {
-        map.fitBounds(L.latLngBounds(gpsPath));
+        map.fitBounds(L.latLngBounds(toLatLngPath(gpsPath)));
       } else if (locations.length > 0) {
         const group = new L.featureGroup(Object.values(markers));
         map.fitBounds(group.getBounds());
@@ -157,46 +138,7 @@
   }
 
   function renderPath() {
-    if (pathLayerGroup) {
-      map.removeLayer(pathLayerGroup);
-    }
-    if (gpsPath.length > 1) {
-      const segments = [];
-      const len = gpsPath.length;
-      for (let i = 0; i < len - 1; i++) {
-        // Gradient from Purple (oldest) to Bright Green (newest)
-        const fraction = i / (len - 1);
-        const hue = 280 - (fraction * 160); // 280 -> 120
-        segments.push(
-          L.polyline([gpsPath[i], gpsPath[i + 1]], {
-            color: `hsl(${hue}, 100%, 50%)`,
-            weight: 5
-          })
-        );
-      }
-      pathLayerGroup = L.layerGroup(segments).addTo(map);
-    }
-  }
-
-  function getLatestTripSegment(pathData: PathPoint[]): [number, number][] {
-    if (pathData.length === 0) {
-      return [];
-    }
-
-    const segmentBreakMs = 30 * 60 * 1000;
-    let lastBreakIndex = 0;
-
-    for (let i = 1; i < pathData.length; i++) {
-      const currentTime = Date.parse(pathData[i].timestamp || "");
-      const previousTime = Date.parse(pathData[i - 1].timestamp || "");
-      if (Number.isFinite(currentTime) && Number.isFinite(previousTime)) {
-        if (currentTime - previousTime > segmentBreakMs) {
-          lastBreakIndex = i;
-        }
-      }
-    }
-
-    return pathData.slice(lastBreakIndex).map((point): [number, number] => [point.lat, point.lng]);
+    pathLayerGroup = renderTripPath(map, gpsPath, pathLayerGroup);
   }
 
   async function findAttractions() {

@@ -1,4 +1,5 @@
 import "./app.css";
+import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import App from "./App.svelte";
 import Edit from "./Edit.svelte";
 import Suite from "./Suite.svelte";

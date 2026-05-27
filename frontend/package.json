@@ -12,6 +12,7 @@
     "@capacitor/core": "^8.3.4",
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/preferences": "^8.0.1",
+    "@geoman-io/leaflet-geoman-free": "^2.19.3",
     "cors": "^2.8.6",
     "leaflet": "^1.9.4"
   },
