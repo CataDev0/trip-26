@@ -11,7 +11,7 @@
   let mapContainer: HTMLDivElement;
   let map: L.Map;
   let locations: any[] = [];
-  
+
   let mode: "pins" | "normalize" = "pins";
   let selectStart: L.LatLng | null = null;
   let selectEnd: L.LatLng | null = null;
@@ -20,7 +20,8 @@
   let statusText = "Click map to add a pin. Drag a pin to move it.";
   let markers: L.Layer[] = [];
   let pathLayerGroup: L.FeatureGroup | undefined;
-  
+  let drawnGeomanShapes: L.Layer[] = [];
+
   const defaultIcon = new L.Icon.Default();
 
   onMount(async () => {
@@ -35,33 +36,6 @@
     await loadLocations();
     await loadPath();
 
-    // Map click adds new location visually
-    map.on("click", (e) => {
-      if (mode === "pins") {
-        const newLoc = {
-          name: "New Location",
-          lat: e.latlng.lat,
-          lng: e.latlng.lng,
-        };
-        locations = [...locations, newLoc];
-        renderLocations();
-      } else if (mode === "normalize") {
-        if (!selectStart) {
-          selectStart = e.latlng;
-          selectEnd = null;
-          if (selectionRect) map.removeLayer(selectionRect);
-          selectionRect = null;
-          statusText = "Click again to finish the normalization zone.";
-        } else {
-          selectEnd = e.latlng;
-          const bounds = L.latLngBounds(selectStart, selectEnd);
-          if (selectionRect) map.removeLayer(selectionRect);
-          selectionRect = L.rectangle(bounds, {color: "#ff7800", weight: 2}).addTo(map);
-          statusText = "Zone selected! Click 'Apply Normalization' or click again to draw a new zone.";
-          selectStart = null; // reset for next box
-        }
-      }
-
     pathLayerGroup = L.featureGroup().addTo(map);
 
     await loadData();
@@ -70,13 +44,13 @@
       position: "topleft",
       drawMarker: true,
       drawCircleMarker: false,
-      drawPolyline: true,
-      drawRectangle: false, // Disabled native rectangle drawing
-      drawPolygon: false,
+      drawPolyline: false,
+      drawRectangle: true,
+      drawPolygon: true,
       drawCircle: false,
       editMode: true,
       dragMode: true,
-      cutPolygon: true, // SCISSORS TOOL: Draw a shape to cut out lines/points inside it!
+      cutPolygon: false,
       removalMode: true,
     });
 
@@ -91,8 +65,8 @@
     };
 
     map.on("pm:create", (e) => {
-      if (e.shape === "Line") {
-        e.layer.addTo(pathLayerGroup!);
+      if (e.shape === "Rectangle" || e.shape === "Polygon") {
+        drawnGeomanShapes.push(e.layer);
       } else if (e.shape === "Marker") {
         const ll = (e.layer as L.Marker).getLatLng();
         const newLoc = {
@@ -106,11 +80,16 @@
       }
     });
 
+    map.on("pm:remove", (e) => {
+      drawnGeomanShapes = drawnGeomanShapes.filter(layer => layer !== e.layer);
+    });
+
     return () => {
       delete (window as any).editLocName;
       delete (window as any).deleteLoc;
       if (map) {
         map.off("pm:create");
+        map.off("pm:remove");
         map.pm.removeControls();
         map.pm.disableDraw();
         if (pathLayerGroup) map.removeLayer(pathLayerGroup);
@@ -124,10 +103,12 @@
     const pts = data.map((d: any) => [d.lat, d.lng] as [number, number]);
     if (pts.length > 0) {
       if (pathLines.length) {
-        pathLines.forEach(l => map.removeLayer(l));
+        pathLines.forEach((l) => map.removeLayer(l));
         pathLines = [];
       }
-      pathLines.push(L.polyline(pts, { color: 'blue', weight: 3, opacity: 0.5 }).addTo(map));
+      pathLines.push(
+        L.polyline(pts, { color: "blue", weight: 3, opacity: 0.5 }).addTo(map),
+      );
     }
   }
 
@@ -139,6 +120,8 @@
     if (markers && markers.length > 0) {
       const group: L.FeatureGroup = new L.featureGroup(markers);
       map.fitBounds(group.getBounds());
+    }
+  }
 
   async function loadData() {
     try {
@@ -148,7 +131,7 @@
       renderPaths(data.pathData);
 
       if (markers && markers.length > 0) {
-        const group = new L.featureGroup(markers);
+        const group: L.FeatureGroup = new L.featureGroup(markers);
         map.fitBounds(group.getBounds());
       }
     } catch (e) {
@@ -185,14 +168,19 @@
     });
   }
 
-  function splitTripsByGap(pathData: PathPoint[], gapMinutes = 30): PathPoint[][] {
+  function splitTripsByGap(
+    pathData: PathPoint[],
+    gapMinutes = 30,
+  ): PathPoint[][] {
     const trips: PathPoint[][] = [];
     let currentTrip: PathPoint[] = [];
     const gapMs = gapMinutes * 60 * 1000;
     let previousTimestamp: number | null = null;
 
     for (const point of pathData) {
-      const nextTimestamp = point.timestamp ? Date.parse(point.timestamp) : Number.NaN;
+      const nextTimestamp = point.timestamp
+        ? Date.parse(point.timestamp)
+        : Number.NaN;
       const hasGap =
         currentTrip.length > 0 &&
         previousTimestamp !== null &&
@@ -218,7 +206,10 @@
     return trips;
   }
 
-  function simplifyTrip(trip: PathPoint[], toleranceMeters: number): PathPoint[] {
+  function simplifyTrip(
+    trip: PathPoint[],
+    toleranceMeters: number,
+  ): PathPoint[] {
     if (trip.length < 3) return trip;
     const res = [trip[0]];
     let last = trip[0];
@@ -253,7 +244,7 @@
       // Attach the original timestamps to the layer so we can potentially save them back
       // Since geoman can add/remove vertices, exact timestamps might not map 1:1 anymore,
       // but we can try to store them or just let the new points have current timestamps.
-      (polyline as any)._originalPoints = simplified; 
+      (polyline as any)._originalPoints = simplified;
       polyline.addTo(pathLayerGroup);
     });
   }
@@ -277,10 +268,10 @@
 
   async function saveTraces() {
     if (!pathLayerGroup) return;
-    
+
     let newPathData: PathPoint[] = [];
     let baseTime = new Date("2020-01-01T00:00:00Z").getTime();
-    
+
     pathLayerGroup.eachLayer((layer: any) => {
       if (layer instanceof L.Polyline) {
         const latlngs = layer.getLatLngs() as L.LatLng[] | L.LatLng[][];
@@ -293,13 +284,13 @@
         };
 
         const flatLatLngs = flatten(latlngs as any[]);
-        
+
         flatLatLngs.forEach((ll, index) => {
-           newPathData.push({
-             lat: ll.lat,
-             lng: ll.lng,
-             timestamp: new Date(baseTime + index * 1000).toISOString()
-           });
+          newPathData.push({
+            lat: ll.lat,
+            lng: ll.lng,
+            timestamp: new Date(baseTime + index * 1000).toISOString(),
+          });
         });
 
         // Jump 1 hour so the next polyline counts as a separate trip
@@ -323,19 +314,16 @@
 
   async function normalizePath() {
     let confirmMsg = "This will clean up your ENTIRE GPS history by removing jitter and duplicate points. Continue?";
-    let bodyData: any = {};
-    if (mode === "normalize" && selectionRect) {
-      confirmMsg = "This will clean up the GPS history inside your selected zone ONLY. Continue?";
-      const bounds = selectionRect.getBounds();
+    let bodyData = {};
+    if (drawnGeomanShapes.length > 0) {
+      confirmMsg = "This will clean up the GPS history inside your drawn zone(s) ONLY. Continue?";
+      const bounds = drawnGeomanShapes[0].getBounds();
       bodyData.bounds = {
         minLat: bounds.getSouth(),
         maxLat: bounds.getNorth(),
         minLng: bounds.getWest(),
-        maxLng: bounds.getEast()
+        maxLng: bounds.getEast(),
       };
-    } else if (mode === "normalize" && !selectionRect) {
-      alert("Please draw an area on the map first, or switch to Edit Pins mode to normalize the entire path.");
-      return;
     }
 
     if (!confirm(confirmMsg)) return;
@@ -344,17 +332,16 @@
       const res = await authFetch(API_BASE + "/api/path/normalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bodyData)
+        body: JSON.stringify(bodyData),
       });
       if (res.ok) {
         const data = await res.json();
         alert(`Path normalized successfully! Removed ${data.removed} erratic/duplicate points.`);
+        
+        drawnGeomanShapes.forEach(shape => map.removeLayer(shape));
+        drawnGeomanShapes = [];
+        
         await loadPath(); // refresh visual path
-        if (selectionRect) {
-          map.removeLayer(selectionRect);
-          selectionRect = null;
-          statusText = "Click map to set the first corner of a new normalization zone.";
-        }
       } else {
         alert("Failed to normalize path.");
       }
@@ -363,59 +350,13 @@
       console.error(e);
     }
   }
-
-  function toggleMode() {
-    if (mode === "pins") {
-      mode = "normalize";
-      statusText = "Click map to set the first corner of a normalization zone.";
-    } else {
-      mode = "pins";
-      statusText = "Click map to add a pin. Drag a pin to move it.";
-      if (selectionRect) map.removeLayer(selectionRect);
-      selectionRect = null;
-      selectStart = null;
-      selectEnd = null;
-    }
-  }
 </script>
 
-<TopBar
-  title="Edit Mode"
-  showVisitorCount={false}
-  {statusText}
->
+<TopBar title="Edit Mode" showVisitorCount={false} statusText="Use the Geoman toolbar to draw shapes or edit paths.">
   <svelte:fragment slot="buttons">
-    <button
-      class="btn"
-      style="background-color: #17a2b8; color: #fff; margin-right: 5px;"
-      on:click={toggleMode}
-    >
-      {mode === "pins" ? "Switch to Normalize Mode" : "Switch to Edit Pins Mode"}
+    <button class="btn" style="background-color: #ff9800; color: #000; margin-right: 5px;" on:click={normalizePath}>
+      Normalize Path
     </button>
-    
-    {#if mode === "normalize"}
-      <button
-        class="btn"
-        style="background-color: #ff9800; color: #000; margin-right: 5px;"
-        on:click={normalizePath}>Apply Normalization</button
-      >
-    {:else}
-      <button
-        class="btn"
-        style="background-color: #ff9800; color: #000; margin-right: 5px;"
-        on:click={normalizePath}>Normalize ENTIRE Path</button
-      >
-      <button
-        class="btn"
-        style="background-color: #28a745;"
-        on:click={saveChanges}>Save Changes</button
-      >
-    {/if}
-    <a
-      href="/suite"
-      class="btn"
-      style="text-decoration:none; background-color: #6c757d; margin-left: 5px;">Back to Map</a
-    >
     <button class="btn" style="background-color: #28a745;" on:click={saveLocations}>
       Save Locs
     </button>

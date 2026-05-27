@@ -18,9 +18,9 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
   const a =
     Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
     Math.cos(toRadians(lat1)) *
-      Math.cos(toRadians(lat2)) *
-      Math.sin(deltaLng / 2) *
-      Math.sin(deltaLng / 2);
+    Math.cos(toRadians(lat2)) *
+    Math.sin(deltaLng / 2) *
+    Math.sin(deltaLng / 2);
   return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -30,9 +30,9 @@ app.use((req, res, next) => {
   const isFile = req.path.includes(".");
   const isPublicApi =
     req.path.startsWith("/api/") && req.method === "GET";
-    const isPreflight = req.method === "OPTIONS";
+  const isPreflight = req.method === "OPTIONS";
 
-    if (!isHome && !isFile && !isPublicApi && !isPreflight) {
+  if (!isHome && !isFile && !isPublicApi && !isPreflight) {
     const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
     const [login, password] = Buffer.from(b64auth, "base64")
       .toString()
@@ -201,20 +201,95 @@ app.get("/api/path", (req, res) => {
   res.json(pathData);
 });
 
-// Normalize the GPS path: removes duplicates and jitter
+// Math helpers for DP
+function segDistSq(pt, p1, p2) {
+    let x = p1.lat;
+    let y = p1.lng;
+    let dx = p2.lat - x;
+    let dy = p2.lng - y;
+
+    if (dx !== 0 || dy !== 0) {
+        const t = ((pt.lat - x) * dx + (pt.lng - y) * dy) / (dx * dx + dy * dy);
+        if (t > 1) {
+            x = p2.lat;
+            y = p2.lng;
+        } else if (t > 0) {
+            x += dx * t;
+            y += dy * t;
+        }
+    }
+
+    dx = pt.lat - x;
+    dy = pt.lng - y;
+    
+    // Scale longitude by cos(latitude)
+    const latRad = pt.lat * (Math.PI / 180);
+    dy = dy * Math.cos(latRad);
+    
+    return dx * dx + dy * dy;
+}
+
+function simplifyDPStep(points, first, last, sqTolerance, keptSet) {
+    let maxSqDist = sqTolerance;
+    let index = -1;
+
+    for (let i = first + 1; i < last; i++) {
+        const sqDist = segDistSq(points[i], points[first], points[last]);
+        if (sqDist > maxSqDist) {
+            index = i;
+            maxSqDist = sqDist;
+        }
+    }
+
+    if (maxSqDist > sqTolerance) {
+        if (index - first > 1) simplifyDPStep(points, first, index, sqTolerance, keptSet);
+        keptSet.add(points[index].id);
+        if (last - index > 1) simplifyDPStep(points, index, last, sqTolerance, keptSet);
+    }
+}
+
+function simplifyDP(points, distanceThresholdMeters) {
+    if (points.length <= 2) return new Set(points.map(p => p.id));
+    
+    const tolDegrees = distanceThresholdMeters / 111320;
+    const sqTolerance = tolDegrees * tolDegrees;
+    
+    const keptSet = new Set();
+    const last = points.length - 1;
+    
+    keptSet.add(points[0].id);
+    simplifyDPStep(points, 0, last, sqTolerance, keptSet);
+    keptSet.add(points[last].id);
+    
+    return keptSet;
+}
+
+// Normalize the GPS path: simplifies points using Douglas-Peucker inside selection bounds
 app.post("/api/path/normalize", (req, res) => {
   const bounds = req.body.bounds; // optional: { minLat, maxLat, minLng, maxLng }
+  const distanceThreshold = req.body.distance || 30;
   
   const points = db.prepare("SELECT id, lat, lng FROM gps_path ORDER BY timestamp ASC").all();
   if (points.length < 2) return res.json({ success: true, removed: 0 });
 
   let removed = 0;
-  let lastFixed = points[0];
-
   const deleteStmt = db.prepare("DELETE FROM gps_path WHERE id = ?");
 
+  let currentSegment = [];
+  
+  const processSegment = () => {
+      if (currentSegment.length <= 2) return;
+      const kept = simplifyDP(currentSegment, distanceThreshold);
+      for (const pt of currentSegment) {
+          if (!kept.has(pt.id)) {
+              deleteStmt.run(pt.id);
+              removed++;
+          }
+      }
+  };
+
   db.transaction(() => {
-    for (let i = 1; i < points.length; i++) {
+    for (let i = 0; i < points.length; i++) {
         const pt = points[i];
         
         let inBounds = true;
@@ -225,23 +300,24 @@ app.post("/api/path/normalize", (req, res) => {
           );
         }
 
-        if (!inBounds) {
-          lastFixed = pt;
-          continue;
-        }
-
-        const dist = haversineMeters(lastFixed.lat, lastFixed.lng, pt.lat, pt.lng);
-        // If the point is within 15 meters of the last kept point, we consider it jitter/duplicate and remove it
-        if (dist < 15) {
-            deleteStmt.run(pt.id);
-            removed++;
+        if (inBounds) {
+            currentSegment.push(pt);
         } else {
-            lastFixed = pt;
+            if (currentSegment.length > 0) {
+                // To ensure DP connects perfectly, we theoretically need to include 
+                // the bounding outside points as constraints, but just doing it 
+                // on the inside sequence is usually enough.
+                processSegment();
+                currentSegment = [];
+            }
         }
     }
+    if (currentSegment.length > 0) processSegment();
   })();
 
   res.json({ success: true, removed });
+});
+
 // Replace the full GPS path
 app.put("/api/path", (req, res) => {
   const points = req.body;
@@ -278,8 +354,8 @@ app.get("/api/speed-limit", async (req, res) => {
     }
 
     const offsetLng = parseFloat(lng) + 0.001;
-    const url = `https://router.hereapi.com/v8/routes?transportMode=car&origin=${lat},${lng}&destination=${lat},${offsetLng}&return=spans&spans=speedLimit&apikey=${apiKey}`;
-    
+    const url = `https://router.hereapi.com/v8/routes?transportMode=car&origin=${lat},${lng}&destination=${lat},${offsetLng}&return=polyline&spans=speedLimit&apikey=${apiKey}`;
+
     // Node.js 18+ has native fetch
     const response = await fetch(url);
     const data = await response.json();
@@ -291,7 +367,7 @@ app.get("/api/speed-limit", async (req, res) => {
         speedLimit = Math.round(spans[0].speedLimit * 3.6);
       }
     }
-    
+
     res.json({ speedLimit });
   } catch (error) {
     console.error("Speed limit proxy error:", error);
@@ -369,4 +445,4 @@ app.listen(PORT, "0.0.0.0", () => {
 
   console.log(`Server is running locally at http://localhost:${PORT}`);
   console.log(`Access on your phone using   http://${localIp}:${PORT}`);
-});
+})

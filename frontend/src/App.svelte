@@ -5,7 +5,11 @@
   import { fetchAndRenderAttractions } from "./attractions";
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
   import TopBar from "./TopBar.svelte";
-  import { loadMapBootstrapData, type LocationData, type PathPoint } from "./mapData";
+  import {
+    loadMapBootstrapData,
+    type LocationData,
+    type PathPoint,
+  } from "./mapData";
   import { renderTripPath, toLatLngPath } from "./tripPath";
 
   let map: L.Map;
@@ -62,7 +66,9 @@
       if (gpsPath.length > 0) {
         map.fitBounds(L.latLngBounds(toLatLngPath(gpsPath)));
       } else if (locations.length > 0) {
-        const group: L.FeatureGroup = new L.featureGroup(Object.values(markers));
+        const group: L.FeatureGroup = new L.featureGroup(
+          Object.values(markers),
+        );
         map.fitBounds(group.getBounds());
       }
 
