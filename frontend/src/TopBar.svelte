@@ -8,35 +8,37 @@
   export let showVisitorCount: boolean = true;
   export let statusText: string | null = null;
 
-  const dispatch = createEventDispatcher();
+  const dispatch = createEventDispatcher<{
+      toggleSidebar: void;
+  }>();
 
   let visitorCount: number = 1;
 
   onMount(() => {
-    if (showVisitorCount) {
-      let visitorId = localStorage.getItem("visitorId");
-      if (!visitorId) {
-        visitorId = Math.random().toString(36).substring(2) + Date.now().toString(36);
-        localStorage.setItem("visitorId", visitorId);
+      if (showVisitorCount) {
+          let visitorId = localStorage.getItem("visitorId");
+          if (!visitorId) {
+              visitorId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+              localStorage.setItem("visitorId", visitorId);
+          }
+
+          const fetchVisitors = async () => {
+              try {
+                  const res = await fetch(API_BASE + `/api/visitors?id=${visitorId}`);
+                  const data = await res.json();
+                  visitorCount = data.count;
+              } catch (e) {
+                  console.error("Failed to fetch visitors", e);
+              }
+          };
+
+          fetchVisitors();
+          const visitorInterval = setInterval(fetchVisitors, 5 * 60 * 1000);
+
+          return () => {
+              clearInterval(visitorInterval);
+          };
       }
-
-      const fetchVisitors = async () => {
-        try {
-          const res = await fetch(API_BASE + `/api/visitors?id=${visitorId}`);
-          const data = await res.json();
-          visitorCount = data.count;
-        } catch (e) {
-          console.error("Failed to fetch visitors", e);
-        }
-      };
-
-      fetchVisitors();
-      const visitorInterval = setInterval(fetchVisitors, 5 * 60 * 1000);
-
-      return () => {
-        clearInterval(visitorInterval);
-      };
-    }
   });
 </script>
 

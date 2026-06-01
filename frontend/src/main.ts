@@ -6,16 +6,16 @@ import Suite from "./Suite.svelte";
 
 // Super simple SPA routing check
 const routes = {
-  "/": App,
-  "/edit": Edit,
-  "/suite": Suite,
+    "/": App,
+    "/edit": Edit,
+    "/suite": Suite,
 };
 
 const path = window.location.pathname;
 const Component = path in routes ? routes[path as keyof typeof routes] : App; // Default to App if route not found
 
 const app = new Component({
-  target: document.getElementById("app") || document.body,
+    target: document.getElementById("app") || document.body,
 });
 
 export default app;

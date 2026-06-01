@@ -4,105 +4,105 @@ import type { PathPoint } from "./mapData";
 export type LatLngTuple = [number, number];
 
 export function toLatLngPath(pathData: PathPoint[]): LatLngTuple[] {
-  return pathData.map((point) => [point.lat, point.lng] as LatLngTuple);
+    return pathData.map((point) => [point.lat, point.lng] as LatLngTuple);
 }
 
 export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const earthRadius = 6371000;
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-  const deltaLat = toRadians(lat2 - lat1);
-  const deltaLng = toRadians(lng2 - lng1);
-  const a =
-    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    const earthRadius = 6371000;
+    const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+    const deltaLat = toRadians(lat2 - lat1);
+    const deltaLng = toRadians(lng2 - lng1);
+    const a =
+        Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
     Math.cos(toRadians(lat1)) *
     Math.cos(toRadians(lat2)) *
     Math.sin(deltaLng / 2) *
     Math.sin(deltaLng / 2);
-  return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export function splitTripsByGap(
-  pathData: PathPoint[],
-  gapMinutes = 30,
+    pathData: PathPoint[],
+    gapMinutes = 30,
 ): PathPoint[][] {
-  const trips: PathPoint[][] = [];
-  let currentTrip: PathPoint[] = [];
-  const gapMs = gapMinutes * 60 * 1000;
-  let previousTimestamp: number | null = null;
-  let previousPoint: PathPoint | null = null;
+    const trips: PathPoint[][] = [];
+    let currentTrip: PathPoint[] = [];
+    const gapMs = gapMinutes * 60 * 1000;
+    let previousTimestamp: number | null = null;
+    let previousPoint: PathPoint | null = null;
 
-  for (const point of pathData) {
-    const nextTimestamp = point.timestamp ? Date.parse(point.timestamp) : Number.NaN;
-    let hasGap = false;
+    for (const point of pathData) {
+        const nextTimestamp = point.timestamp ? Date.parse(point.timestamp) : Number.NaN;
+        let hasGap = false;
     
-    if (currentTrip.length > 0) {
-      if (previousTimestamp !== null && Number.isFinite(nextTimestamp) && (nextTimestamp - previousTimestamp > gapMs)) {
-        hasGap = true;
-      } else if (previousPoint !== null) {
-        // Break trips apart if the gap is larger than 50km
-        const dist = haversineMeters(previousPoint.lat, previousPoint.lng, point.lat, point.lng);
-        if (dist > 50000) {
-          hasGap = true;
+        if (currentTrip.length > 0) {
+            if (previousTimestamp !== null && Number.isFinite(nextTimestamp) && (nextTimestamp - previousTimestamp > gapMs)) {
+                hasGap = true;
+            } else if (previousPoint !== null) {
+                // Break trips apart if the gap is larger than 50km
+                const dist = haversineMeters(previousPoint.lat, previousPoint.lng, point.lat, point.lng);
+                if (dist > 50000) {
+                    hasGap = true;
+                }
+            }
         }
-      }
+
+        if (hasGap) {
+            trips.push(currentTrip);
+            currentTrip = [];
+        }
+
+        currentTrip.push(point);
+
+        if (Number.isFinite(nextTimestamp)) {
+            previousTimestamp = nextTimestamp;
+        }
+        previousPoint = point;
     }
 
-    if (hasGap) {
-      trips.push(currentTrip);
-      currentTrip = [];
+    if (currentTrip.length > 0) {
+        trips.push(currentTrip);
     }
 
-    currentTrip.push(point);
-
-    if (Number.isFinite(nextTimestamp)) {
-      previousTimestamp = nextTimestamp;
-    }
-    previousPoint = point;
-  }
-
-  if (currentTrip.length > 0) {
-    trips.push(currentTrip);
-  }
-
-  return trips;
+    return trips;
 }
 
 export function renderTripPath(
-  map: L.Map,
-  pathData: PathPoint[],
-  existingLayerGroup: L.LayerGroup | null,
+    map: L.Map,
+    pathData: PathPoint[],
+    existingLayerGroup: L.LayerGroup | null,
 ): L.LayerGroup | null {
-  if (existingLayerGroup) {
-    map.removeLayer(existingLayerGroup);
-  }
-
-  const trips = splitTripsByGap(pathData);
-  if (trips.length === 0) {
-    return null;
-  }
-
-  const segments: L.Polyline[] = [];
-
-  trips.forEach((trip) => {
-    if (trip.length < 2) {
-      return;
+    if (existingLayerGroup) {
+        map.removeLayer(existingLayerGroup);
     }
 
-    for (let i = 0; i < trip.length - 1; i++) {
-      const fraction = i / (trip.length - 1);
-      const hue = 280 - fraction * 160;
-      segments.push(
-        L.polyline([[trip[i].lat, trip[i].lng], [trip[i + 1].lat, trip[i + 1].lng]], {
-          color: `hsl(${hue}, 100%, 50%)`,
-          weight: 5,
-        }),
-      );
+    const trips = splitTripsByGap(pathData);
+    if (trips.length === 0) {
+        return null;
     }
-  });
 
-  if (segments.length === 0) {
-    return null;
-  }
+    const segments: L.Polyline[] = [];
 
-  return L.layerGroup(segments).addTo(map);
+    trips.forEach((trip) => {
+        if (trip.length < 2) {
+            return;
+        }
+
+        for (let i = 0; i < trip.length - 1; i++) {
+            const fraction = i / (trip.length - 1);
+            const hue = 280 - fraction * 160;
+            segments.push(
+                L.polyline([[trip[i].lat, trip[i].lng], [trip[i + 1].lat, trip[i + 1].lng]], {
+                    color: `hsl(${hue}, 100%, 50%)`,
+                    weight: 5,
+                }),
+            );
+        }
+    });
+
+    if (segments.length === 0) {
+        return null;
+    }
+
+    return L.layerGroup(segments).addTo(map);
 }

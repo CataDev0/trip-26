@@ -6,9 +6,9 @@
   import { MIN_ATTRACTIONS_ZOOM } from "./Constants";
   import TopBar from "./TopBar.svelte";
   import {
-    loadMapBootstrapData,
-    type LocationData,
-    type PathPoint,
+      loadMapBootstrapData,
+      type LocationData,
+      type PathPoint,
   } from "./mapData";
   import { renderTripPath, toLatLngPath } from "./tripPath";
 
@@ -26,173 +26,150 @@
 
   const defaultIcon = new L.Icon.Default();
   const visitedIcon = new L.Icon({
-    ...L.Icon.Default.prototype.options,
-    iconUrl:
+      ...L.Icon.Default.prototype.options,
+      iconUrl:
       "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png",
-    shadowUrl:
+      shadowUrl:
       "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
   });
 
   onMount(async () => {
-    const { map: sharedMap, container } = getSharedMap();
-    map = sharedMap; // Use the stored Leaflet map reference
+      const { map: sharedMap, container } = getSharedMap();
+      map = sharedMap; // Use the stored Leaflet map reference
 
-    currentZoom = map.getZoom() || 13;
-    map.on("zoomend", () => {
-      currentZoom = map.getZoom();
-    });
+      currentZoom = map.getZoom() || 13;
+      map.on("zoomend", () => {
+          currentZoom = map.getZoom();
+      });
 
-    // Append the persistent map container to this specific view's map wrapper
-    mapContainer.appendChild(container);
+      // Append the persistent map container to this specific view's map wrapper
+      mapContainer.appendChild(container);
 
-    // Ensure Leaflet resizes properly when adopted by the new parent
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 10);
+      // Ensure Leaflet resizes properly when adopted by the new parent
+      setTimeout(() => {
+          map.invalidateSize();
+      }, 10);
 
-    await loadData();
+      await loadData();
   });
 
   async function loadData() {
-    try {
-      const data = await loadMapBootstrapData();
-      locations = data.locations;
-      visitedIds = data.visitedIds;
-      gpsPath = data.pathData;
+      try {
+          const data = await loadMapBootstrapData();
+          locations = data.locations;
+          visitedIds = data.visitedIds;
+          gpsPath = data.pathData;
 
-      renderLocations();
-      renderPath();
+          renderLocations();
+          renderPath();
 
-      if (gpsPath.length > 0) {
-        map.fitBounds(L.latLngBounds(toLatLngPath(gpsPath)));
-      } else if (locations.length > 0) {
-        const group: L.FeatureGroup = new L.featureGroup(
-          Object.values(markers),
-        );
-        map.fitBounds(group.getBounds());
+          if (gpsPath.length > 0) {
+              map.fitBounds(L.latLngBounds(toLatLngPath(gpsPath)));
+          } else if (locations.length > 0) {
+              const group: L.FeatureGroup = new L.featureGroup(
+                  Object.values(markers),
+              );
+              map.fitBounds(group.getBounds());
+          }
+
+          // Fetch images in the background without blocking initial render
+          locations.forEach(async (loc: LocationData, index: number) => {
+              try {
+                  const wikiRes = await fetch(
+                      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(loc.name)}`,
+                  );
+                  if (wikiRes.ok) {
+                      const wikiData = await wikiRes.json();
+                      if (wikiData.thumbnail && wikiData.thumbnail.source) {
+                          locations[index].imageUrl = wikiData.thumbnail.source;
+                          locations = [...locations]; // trigger Svelte reactivity
+                          updateMarkerPopup(loc);
+                          return;
+                      }
+                  }
+
+                  const wdRes = await fetch(
+                      `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggsradius=100&ggscoord=${loc.lat}|${loc.lng}&prop=pageimages&pithumbsize=300&format=json&origin=*`,
+                  );
+                  if (wdRes.ok) {
+                      const wdData = await wdRes.json();
+                      if (wdData.query && wdData.query.pages) {
+                          const pages: any[] = Object.values(wdData.query.pages);
+                          if (pages.length > 0 && pages[0].thumbnail) {
+                              locations[index].imageUrl = pages[0].thumbnail.source;
+                              locations = [...locations]; // trigger Svelte reactivity
+                              updateMarkerPopup(loc);
+                          }
+                      }
+                  }
+              } catch (e) {}
+          });
+      } catch (err) {
+          console.error("Error initializing:", err);
       }
-
-      // Fetch images in the background without blocking initial render
-      locations.forEach(async (loc: LocationData, index: number) => {
-        try {
-          const wikiRes = await fetch(
-            `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(loc.name)}`,
-          );
-          if (wikiRes.ok) {
-            const wikiData = await wikiRes.json();
-            if (wikiData.thumbnail && wikiData.thumbnail.source) {
-              locations[index].imageUrl = wikiData.thumbnail.source;
-              locations = [...locations]; // trigger Svelte reactivity
-              updateMarkerPopup(loc);
-              return;
-            }
-          }
-
-          const wdRes = await fetch(
-            `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggsradius=100&ggscoord=${loc.lat}|${loc.lng}&prop=pageimages&pithumbsize=300&format=json&origin=*`,
-          );
-          if (wdRes.ok) {
-            const wdData = await wdRes.json();
-            if (wdData.query && wdData.query.pages) {
-              const pages: any[] = Object.values(wdData.query.pages);
-              if (pages.length > 0 && pages[0].thumbnail) {
-                locations[index].imageUrl = pages[0].thumbnail.source;
-                locations = [...locations]; // trigger Svelte reactivity
-                updateMarkerPopup(loc);
-              }
-            }
-          }
-        } catch (e) {}
-      });
-    } catch (err) {
-      console.error("Error initializing:", err);
-    }
   }
 
   function updateMarkerPopup(loc: LocationData) {
-    const marker = markers[loc.id];
-    if (marker && marker.getPopup()) {
-      marker.setPopupContent(createPopupContent(loc, visitedIds.has(loc.id)));
-    }
+      const marker = markers[loc.id];
+      if (marker && marker.getPopup()) {
+          marker.setPopupContent(createPopupContent(loc, visitedIds.has(loc.id)));
+      }
   }
 
   function createPopupContent(loc: LocationData, isVisited: boolean): string {
-    return `
+      return `
       <div style="text-align: center; min-width: 120px;">
         ${loc.imageUrl ? `<img src="${loc.imageUrl}" alt="${loc.name}" style="width:100%; max-height:100px; object-fit:cover; border-radius:4px; margin-bottom:5px;" /><br>` : ""}
         <strong>${loc.name}</strong><br>
         ${
           isVisited
-            ? '<span style="color:#28a745;font-weight:bold;">✓ Visited</span>'
-            : ""
+              ? "<span style=\"color:#28a745;font-weight:bold;\">✓ Visited</span>"
+              : ""
         }
       </div>
     `;
   }
 
   function renderLocations() {
-    locations.forEach((loc) => {
-      const isVisited = visitedIds.has(loc.id);
-      const marker = L.marker([loc.lat, loc.lng], {
-        icon: isVisited ? visitedIcon : defaultIcon,
-      })
-        .addTo(map)
-        .bindPopup(createPopupContent(loc, isVisited));
+      locations.forEach((loc) => {
+          const isVisited = visitedIds.has(loc.id);
+          const marker = L.marker([loc.lat, loc.lng], {
+              icon: isVisited ? visitedIcon : defaultIcon,
+          })
+              .addTo(map)
+              .bindPopup(createPopupContent(loc, isVisited));
 
-      markers[loc.id] = marker;
-    });
+          markers[loc.id] = marker;
+      });
   }
 
   function renderPath() {
-    pathLayerGroup = renderTripPath(map, gpsPath, pathLayerGroup) ?? null;
-  }
-
-  function getLatestTripSegment(pathData: PathPoint[]): [number, number][] {
-    if (pathData.length === 0) {
-      return [];
-    }
-
-    const segmentBreakMs = 30 * 60 * 1000;
-    let lastBreakIndex = 0;
-
-    for (let i = 1; i < pathData.length; i++) {
-      const currentTime = Date.parse(pathData[i].timestamp || "");
-      const previousTime = Date.parse(pathData[i - 1].timestamp || "");
-      if (Number.isFinite(currentTime) && Number.isFinite(previousTime)) {
-        if (currentTime - previousTime > segmentBreakMs) {
-          lastBreakIndex = i;
-        }
-      }
-    }
-
-    return pathData
-      .slice(lastBreakIndex)
-      .map((point): [number, number] => [point.lat, point.lng]);
+      pathLayerGroup = renderTripPath(map, gpsPath, pathLayerGroup) ?? null;
   }
 
   async function findAttractions() {
-    findingAttractions = true;
-    try {
-      await fetchAndRenderAttractions(map, false);
-    } catch (err) {
-      console.error("Failed to fetch attractions", err);
-      alert("Failed to load attractions.");
-    } finally {
-      findingAttractions = false;
-    }
+      findingAttractions = true;
+      try {
+          await fetchAndRenderAttractions(map, false);
+      } catch (err) {
+          console.error("Failed to fetch attractions", err);
+          alert("Failed to load attractions.");
+      } finally {
+          findingAttractions = false;
+      }
   }
 
   function jumpToLocation(loc: LocationData) {
-    sidebarExpanded = false;
-    map.flyTo([loc.lat, loc.lng], 16, { duration: 1.5 });
+      sidebarExpanded = false;
+      map.flyTo([loc.lat, loc.lng], 16, { duration: 1.5 });
 
-    // Give it a moment to fly there before opening popup
-    setTimeout(() => {
-      const marker = markers[loc.id];
-      if (marker) {
-        marker.openPopup();
-      }
-    }, 1500);
+      // Give it a moment to fly there before opening popup
+      setTimeout(() => {
+          const marker = markers[loc.id];
+          if (marker) {
+              marker.openPopup();
+          }
+      }, 1500);
   }
 </script>
 
@@ -208,10 +185,10 @@
       disabled={findingAttractions || currentZoom < MIN_ATTRACTIONS_ZOOM}
     >
       {findingAttractions
-        ? "Loading..."
-        : currentZoom < MIN_ATTRACTIONS_ZOOM
-          ? "Zoom in to find attractions"
-          : "Find Nearby Attractions"}
+          ? "Loading..."
+          : currentZoom < MIN_ATTRACTIONS_ZOOM
+              ? "Zoom in to find attractions"
+              : "Find Nearby Attractions"}
     </button>
     <a
       href="/suite"
@@ -223,7 +200,7 @@
 </TopBar>
 
 <div class="main-content">
-  <div class="sidebar {sidebarExpanded ? 'expanded' : ''}">
+  <div class="sidebar {sidebarExpanded ? "expanded" : ""}">
     <div class="sidebar-header">
       Saved Locations
       <button
@@ -231,8 +208,7 @@
         on:click={() => (sidebarExpanded = false)}>✕</button
       >
     </div>
-    {#each locations as loc}
-      <!-- svelte-ignore a11y-click-events-have-key-events - we just want a simple clickable div -->
+    {#each locations as loc (loc.id)}
       <div class="location-item" on:click={() => jumpToLocation(loc)}>
         {#if loc.imageUrl}
           <img class="location-img-thumb" src={loc.imageUrl} alt="" />

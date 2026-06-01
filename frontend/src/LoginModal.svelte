@@ -8,20 +8,20 @@
   let errorMsg = "";
 
   onMount(() => {
-    window.addEventListener("require-login", () => {
-      show = true;
-    });
+      window.addEventListener("require-login", () => {
+          show = true;
+      });
   });
 
   async function login() {
-    if (!username || !password) {
-      errorMsg = "Please enter both fields.";
-      return;
-    }
-    await setAuthCredentials(username, password);
-    show = false;
-    errorMsg = "";
-    alert("Saved securely! Please try your action again.");
+      if (!username || !password) {
+          errorMsg = "Please enter both fields.";
+          return;
+      }
+      await setAuthCredentials(username, password);
+      show = false;
+      errorMsg = "";
+      alert("Saved securely! Please try your action again.");
   }
 </script>
 

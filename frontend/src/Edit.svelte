@@ -9,9 +9,9 @@
   let isSpliceMode = false;
 
   onMount(async () => {
-    const { map, container } = getSharedMap();
-    editor = new MapEditor(map, container);
-    editor.mapContainer.appendChild(container);
+      const { map, container } = getSharedMap();
+      editor = new MapEditor(map, container);
+      editor.mapContainer.appendChild(container);
   });
 </script>
 
@@ -19,8 +19,8 @@
   <svelte:fragment slot="buttons">
   {#if isSpliceMode}
       <span style="background: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 10px;">
-        A: {editor.spliceStartPt ? `${editor.spliceStartPt.lat.toFixed(4)}, ${editor.spliceStartPt.lng.toFixed(4)}` : '...'} | 
-        B: {editor.spliceEndPt ? `${editor.spliceEndPt.lat.toFixed(4)}, ${editor.spliceEndPt.lng.toFixed(4)}` : '...'}
+        A: {editor.spliceStartPt ? `${editor.spliceStartPt.lat.toFixed(4)}, ${editor.spliceStartPt.lng.toFixed(4)}` : "..."} | 
+        B: {editor.spliceEndPt ? `${editor.spliceEndPt.lat.toFixed(4)}, ${editor.spliceEndPt.lng.toFixed(4)}` : "..."}
       </span>
 
       {#if editor.spliceStartPt && editor.spliceEndPt}
@@ -30,8 +30,8 @@
       {/if}
     {/if}
 
-    <button class="btn" style="background-color: {isSpliceMode ? '#17a2b8' : '#6f42c1'}; margin-right: 5px;" on:click={editor.toggleSpliceMode}>
-      {isSpliceMode ? 'Cancel Splice' : 'Splice Mode'}
+    <button class="btn" style="background-color: {isSpliceMode ? "#17a2b8" : "#6f42c1"}; margin-right: 5px;" on:click={editor.toggleSpliceMode}>
+      {isSpliceMode ? "Cancel Splice" : "Splice Mode"}
     </button>
   
   <button class="btn" style="background-color: #28a745;" on:click={editor.saveLocations}>
