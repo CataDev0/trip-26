@@ -8,7 +8,7 @@ const os = require("os");
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: "50mb" }));
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const earthRadius = 6371000;
@@ -28,8 +28,7 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
 app.use((req, res, next) => {
   const isHome = req.path === "/";
   const isFile = req.path.includes(".");
-  const isPublicApi =
-    req.path.startsWith("/api/") && req.method === "GET";
+  const isPublicApi = req.path.startsWith("/api/") && req.method === "GET";
   const isPreflight = req.method === "OPTIONS";
 
   if (!isHome && !isFile && !isPublicApi && !isPreflight) {
@@ -140,7 +139,7 @@ app.get("/api/locations", (req, res) => {
       .prepare("SELECT id, name, lat, lng FROM locations")
       .all();
     res.json(locations);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: "Could not load locations" });
   }
 });
@@ -166,10 +165,13 @@ app.post("/api/visited", (req, res) => {
 // Save a GPS point(s) to the path
 app.post("/api/path", (req, res) => {
   const points = Array.isArray(req.body) ? req.body : [req.body];
-  if (points.length === 0) return res.status(400).json({ error: "No points provided" });
+  if (points.length === 0)
+    return res.status(400).json({ error: "No points provided" });
 
   const insert = db.prepare("INSERT INTO gps_path (lat, lng) VALUES (?, ?)");
-  const lastRow = db.prepare("SELECT lat, lng FROM gps_path ORDER BY id DESC LIMIT 1").get();
+  const lastRow = db
+    .prepare("SELECT lat, lng FROM gps_path ORDER BY id DESC LIMIT 1")
+    .get();
   let lastLat = lastRow ? lastRow.lat : null;
   let lastLng = lastRow ? lastRow.lng : null;
   const insertMany = db.transaction((pts) => {
@@ -196,121 +198,128 @@ app.post("/api/path", (req, res) => {
 // Get the full GPS path
 app.get("/api/path", (req, res) => {
   const pathData = db
-    .prepare("SELECT id, lat, lng, timestamp FROM gps_path ORDER BY timestamp ASC")
+    .prepare(
+      "SELECT id, lat, lng, timestamp FROM gps_path ORDER BY timestamp ASC",
+    )
     .all();
   res.json(pathData);
 });
 
 // Math helpers for DP
 function segDistSq(pt, p1, p2) {
-    let x = p1.lat;
-    let y = p1.lng;
-    let dx = p2.lat - x;
-    let dy = p2.lng - y;
+  let x = p1.lat;
+  let y = p1.lng;
+  let dx = p2.lat - x;
+  let dy = p2.lng - y;
 
-    if (dx !== 0 || dy !== 0) {
-        const t = ((pt.lat - x) * dx + (pt.lng - y) * dy) / (dx * dx + dy * dy);
-        if (t > 1) {
-            x = p2.lat;
-            y = p2.lng;
-        } else if (t > 0) {
-            x += dx * t;
-            y += dy * t;
-        }
+  if (dx !== 0 || dy !== 0) {
+    const t = ((pt.lat - x) * dx + (pt.lng - y) * dy) / (dx * dx + dy * dy);
+    if (t > 1) {
+      x = p2.lat;
+      y = p2.lng;
+    } else if (t > 0) {
+      x += dx * t;
+      y += dy * t;
     }
+  }
 
-    dx = pt.lat - x;
-    dy = pt.lng - y;
-    
-    // Scale longitude by cos(latitude)
-    const latRad = pt.lat * (Math.PI / 180);
-    dy = dy * Math.cos(latRad);
-    
-    return dx * dx + dy * dy;
+  dx = pt.lat - x;
+  dy = pt.lng - y;
+
+  // Scale longitude by cos(latitude)
+  const latRad = pt.lat * (Math.PI / 180);
+  dy = dy * Math.cos(latRad);
+
+  return dx * dx + dy * dy;
 }
 
 function simplifyDPStep(points, first, last, sqTolerance, keptSet) {
-    let maxSqDist = sqTolerance;
-    let index = -1;
+  let maxSqDist = sqTolerance;
+  let index = -1;
 
-    for (let i = first + 1; i < last; i++) {
-        const sqDist = segDistSq(points[i], points[first], points[last]);
-        if (sqDist > maxSqDist) {
-            index = i;
-            maxSqDist = sqDist;
-        }
+  for (let i = first + 1; i < last; i++) {
+    const sqDist = segDistSq(points[i], points[first], points[last]);
+    if (sqDist > maxSqDist) {
+      index = i;
+      maxSqDist = sqDist;
     }
+  }
 
-    if (maxSqDist > sqTolerance) {
-        if (index - first > 1) simplifyDPStep(points, first, index, sqTolerance, keptSet);
-        keptSet.add(points[index].id);
-        if (last - index > 1) simplifyDPStep(points, index, last, sqTolerance, keptSet);
-    }
+  if (maxSqDist > sqTolerance) {
+    if (index - first > 1)
+      simplifyDPStep(points, first, index, sqTolerance, keptSet);
+    keptSet.add(points[index].id);
+    if (last - index > 1)
+      simplifyDPStep(points, index, last, sqTolerance, keptSet);
+  }
 }
 
 function simplifyDP(points, distanceThresholdMeters) {
-    if (points.length <= 2) return new Set(points.map(p => p.id));
-    
-    const tolDegrees = distanceThresholdMeters / 111320;
-    const sqTolerance = tolDegrees * tolDegrees;
-    
-    const keptSet = new Set();
-    const last = points.length - 1;
-    
-    keptSet.add(points[0].id);
-    simplifyDPStep(points, 0, last, sqTolerance, keptSet);
-    keptSet.add(points[last].id);
-    
-    return keptSet;
+  if (points.length <= 2) return new Set(points.map((p) => p.id));
+
+  const tolDegrees = distanceThresholdMeters / 111320;
+  const sqTolerance = tolDegrees * tolDegrees;
+
+  const keptSet = new Set();
+  const last = points.length - 1;
+
+  keptSet.add(points[0].id);
+  simplifyDPStep(points, 0, last, sqTolerance, keptSet);
+  keptSet.add(points[last].id);
+
+  return keptSet;
 }
 
 // Normalize the GPS path: simplifies points using Douglas-Peucker inside selection bounds
 app.post("/api/path/normalize", (req, res) => {
   const bounds = req.body.bounds; // optional: { minLat, maxLat, minLng, maxLng }
   const distanceThreshold = req.body.distance || 30;
-  
-  const points = db.prepare("SELECT id, lat, lng FROM gps_path ORDER BY timestamp ASC").all();
+
+  const points = db
+    .prepare("SELECT id, lat, lng FROM gps_path ORDER BY timestamp ASC")
+    .all();
   if (points.length < 2) return res.json({ success: true, removed: 0 });
 
   let removed = 0;
   const deleteStmt = db.prepare("DELETE FROM gps_path WHERE id = ?");
 
   let currentSegment = [];
-  
+
   const processSegment = () => {
-      if (currentSegment.length <= 2) return;
-      const kept = simplifyDP(currentSegment, distanceThreshold);
-      for (const pt of currentSegment) {
-          if (!kept.has(pt.id)) {
-              deleteStmt.run(pt.id);
-              removed++;
-          }
+    if (currentSegment.length <= 2) return;
+    const kept = simplifyDP(currentSegment, distanceThreshold);
+    for (const pt of currentSegment) {
+      if (!kept.has(pt.id)) {
+        deleteStmt.run(pt.id);
+        removed++;
       }
+    }
   };
 
   db.transaction(() => {
     for (let i = 0; i < points.length; i++) {
-        const pt = points[i];
-        
-        let inBounds = true;
-        if (bounds) {
-          inBounds = (
-            pt.lat >= bounds.minLat && pt.lat <= bounds.maxLat &&
-            pt.lng >= bounds.minLng && pt.lng <= bounds.maxLng
-          );
-        }
+      const pt = points[i];
 
-        if (inBounds) {
-            currentSegment.push(pt);
-        } else {
-            if (currentSegment.length > 0) {
-                // To ensure DP connects perfectly, we theoretically need to include 
-                // the bounding outside points as constraints, but just doing it 
-                // on the inside sequence is usually enough.
-                processSegment();
-                currentSegment = [];
-            }
+      let inBounds = true;
+      if (bounds) {
+        inBounds =
+          pt.lat >= bounds.minLat &&
+          pt.lat <= bounds.maxLat &&
+          pt.lng >= bounds.minLng &&
+          pt.lng <= bounds.maxLng;
+      }
+
+      if (inBounds) {
+        currentSegment.push(pt);
+      } else {
+        if (currentSegment.length > 0) {
+          // To ensure DP connects perfectly, we theoretically need to include
+          // the bounding outside points as constraints, but just doing it
+          // on the inside sequence is usually enough.
+          processSegment();
+          currentSegment = [];
         }
+      }
     }
     if (currentSegment.length > 0) processSegment();
   })();
@@ -321,9 +330,12 @@ app.post("/api/path/normalize", (req, res) => {
 // Replace the full GPS path
 app.put("/api/path", (req, res) => {
   const points = req.body;
-  if (!Array.isArray(points)) return res.status(400).json({ error: "Points must be an array" });
+  if (!Array.isArray(points))
+    return res.status(400).json({ error: "Points must be an array" });
 
-  const insert = db.prepare("INSERT INTO gps_path (lat, lng, timestamp) VALUES (?, ?, ?)");
+  const insert = db.prepare(
+    "INSERT INTO gps_path (lat, lng, timestamp) VALUES (?, ?, ?)",
+  );
 
   try {
     db.transaction((pts) => {
@@ -345,7 +357,8 @@ app.put("/api/path", (req, res) => {
 // Proxy route for HERE Speed Limit
 app.get("/api/speed-limit", async (req, res) => {
   const { lat, lng } = req.query;
-  if (!lat || !lng) return res.status(400).json({ error: "Missing lat or lng" });
+  if (!lat || !lng)
+    return res.status(400).json({ error: "Missing lat or lng" });
 
   try {
     const apiKey = process.env.HERE_API_KEY;
@@ -424,6 +437,23 @@ app.post("/api/locations/single", (req, res) => {
   }
 });
 
+// Splice out messy GPS history section based on ID bounds
+app.delete("/api/path/splice", (req, res) => {
+  const { startId, endId } = req.body;
+  if (!startId || !endId) return res.status(400).json({ error: "Missing startId or endId" });
+
+  try {
+    // Sort IDs to allow backward/forward selection
+    const bounds = [startId, endId].sort((a, b) => a - b);
+    const result = db.prepare("DELETE FROM gps_path WHERE id >= ? AND id <= ?").run(bounds[0], bounds[1]);
+
+    res.json({ success: true, removed: result.changes });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Could not splice path" });
+  }
+});
+
 // SPA fallback for frontend router
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
@@ -445,4 +475,4 @@ app.listen(PORT, "0.0.0.0", () => {
 
   console.log(`Server is running locally at http://localhost:${PORT}`);
   console.log(`Access on your phone using   http://${localIp}:${PORT}`);
-})
+});

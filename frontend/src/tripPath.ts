@@ -7,33 +7,57 @@ export function toLatLngPath(pathData: PathPoint[]): LatLngTuple[] {
   return pathData.map((point) => [point.lat, point.lng] as LatLngTuple);
 }
 
-function splitTripsByGap(
+export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const earthRadius = 6371000;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const deltaLat = toRadians(lat2 - lat1);
+  const deltaLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(toRadians(lat1)) *
+    Math.cos(toRadians(lat2)) *
+    Math.sin(deltaLng / 2) *
+    Math.sin(deltaLng / 2);
+  return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function splitTripsByGap(
   pathData: PathPoint[],
   gapMinutes = 30,
-): LatLngTuple[][] {
-  const trips: LatLngTuple[][] = [];
-  let currentTrip: LatLngTuple[] = [];
+): PathPoint[][] {
+  const trips: PathPoint[][] = [];
+  let currentTrip: PathPoint[] = [];
   const gapMs = gapMinutes * 60 * 1000;
   let previousTimestamp: number | null = null;
+  let previousPoint: PathPoint | null = null;
 
   for (const point of pathData) {
     const nextTimestamp = point.timestamp ? Date.parse(point.timestamp) : Number.NaN;
-    const hasGap =
-      currentTrip.length > 0 &&
-      previousTimestamp !== null &&
-      Number.isFinite(nextTimestamp) &&
-      nextTimestamp - previousTimestamp > gapMs;
+    let hasGap = false;
+    
+    if (currentTrip.length > 0) {
+      if (previousTimestamp !== null && Number.isFinite(nextTimestamp) && (nextTimestamp - previousTimestamp > gapMs)) {
+        hasGap = true;
+      } else if (previousPoint !== null) {
+        // Break trips apart if the gap is larger than 50km
+        const dist = haversineMeters(previousPoint.lat, previousPoint.lng, point.lat, point.lng);
+        if (dist > 50000) {
+          hasGap = true;
+        }
+      }
+    }
 
     if (hasGap) {
       trips.push(currentTrip);
       currentTrip = [];
     }
 
-    currentTrip.push([point.lat, point.lng]);
+    currentTrip.push(point);
 
     if (Number.isFinite(nextTimestamp)) {
       previousTimestamp = nextTimestamp;
     }
+    previousPoint = point;
   }
 
   if (currentTrip.length > 0) {
@@ -68,7 +92,7 @@ export function renderTripPath(
       const fraction = i / (trip.length - 1);
       const hue = 280 - fraction * 160;
       segments.push(
-        L.polyline([trip[i], trip[i + 1]], {
+        L.polyline([[trip[i].lat, trip[i].lng], [trip[i + 1].lat, trip[i + 1].lng]], {
           color: `hsl(${hue}, 100%, 50%)`,
           weight: 5,
         }),
