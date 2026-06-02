@@ -1,12 +1,12 @@
-import L, { FeatureGroup, Marker } from "leaflet";
+import L, { FeatureGroup } from "leaflet";
 import { loadMapBootstrapData, LocationData, PathPoint } from "./mapData";
 import { API_BASE } from "./Constants";
 import { splitTripsByGap } from "./tripPath";
 import { authFetch } from "./auth";
+import { get, Writable, writable } from "svelte/store";
 
 export class MapEditor {
     public map: L.Map;
-    public mapContainer: HTMLDivElement;
     public locations: LocationData[] = [];
 
     private pathLines: L.Polyline[] = [];
@@ -16,43 +16,27 @@ export class MapEditor {
 
     // Timeline Splicing Cut Variables
     private fullPathData: PathPoint[] = [];
-    private isSpliceMode = false;
-    public spliceStartPt: PathPoint | null = null;
-    public spliceEndPt: PathPoint | null = null;
+    public isSpliceMode = writable(false);
+    public spliceStartPt: Writable<PathPoint | null> = writable(null);
+    public spliceEndPt: Writable<PathPoint | null> = writable(null);
     private spliceMarkers: L.Marker[] = [];
 
     private defaultIcon = new L.Icon.Default();
 
-    constructor(map: L.Map, mapContainer: HTMLDivElement) {
-        this.mapContainer = mapContainer;
+    constructor(map: L.Map) {
         this.map = map;
 
         setTimeout(() => {
-            map.invalidateSize();
+            this.map.invalidateSize();
         }, 10);
 
-        void new Promise(async (resolve) => {
-            await this.loadLocations();
-            await this.loadPath();
-            this.pathLayerGroup = L.featureGroup().addTo(this.map);
-            await this.loadData();
-        });
-
-        map.pm.addControls({
-            cutPolygon: true,
-            dragMode: true,
-            drawCircle: false,
-            drawCircleMarker: false,
-            drawMarker: true,
-            drawPolygon: true,
-            drawPolyline: false,
-            drawRectangle: true,
-            editControls: true,
-            editMode: true,
-            position: "topleft",
-            removalMode: true,
-            rotateMode: false,
-        });
+        this.loadLocations()
+            .then(async () => {
+                await this.loadPath();
+                this.pathLayerGroup = L.featureGroup().addTo(this.map);
+            }).then(() => {
+                this.loadData();
+            });
 
         // Global hooks inside popup HTML snippets
         (window as any).editLocName = (id: number, newName: string) => {
@@ -65,7 +49,7 @@ export class MapEditor {
             this.renderLocations();
         };
 
-        map.on("pm:create", (e) => {
+        this.map.on("pm:create", (e) => {
             if (e.type === "Marker") {
                 const ll = (e.layer as L.Marker).getLatLng();
                 const newLoc: LocationData = {
@@ -80,33 +64,33 @@ export class MapEditor {
             }
         });
 
-        map.on("pm:remove", (e) => {
+        this.map.on("pm:remove", (e) => {
             this.drawnGeomanShapes = this.drawnGeomanShapes.filter(
                 (layer) => layer !== e.layer,
             );
         });
 
         // Add map click listener
-        map.on("click", (e) => {
-            if (!this.isSpliceMode) return;
+        this.map.on("click", (e) => {
+            if (!get(this.isSpliceMode)) return;
             this.handleSpliceLocationSelection(e.latlng.lat, e.latlng.lng);
         });
 
         (() => {
             delete (window as any).editLocName;
             delete (window as any).deleteLoc;
-            if (map) {
-                map.off("pm:create");
-                map.off("pm:remove");
-                map.pm.removeControls();
-                map.pm.disableDraw();
-                if (this.pathLayerGroup) map.removeLayer(this.pathLayerGroup);
+            if (this.map) {
+                this.map.off("pm:create");
+                this.map.off("pm:remove");
+                this.map.pm.removeControls();
+                this.map.pm.disableDraw();
+                if (this.pathLayerGroup) this.map.removeLayer(this.pathLayerGroup);
             }
         })();
     }
 
     handleSpliceLocationSelection(lat: number, lng: number) {
-        if (!this.fullPathData || this.fullPathData.length === 0) return;
+        if (!this.fullPathData || this.fullPathData.length === 0 || !get(this.isSpliceMode)) return;
 
         // Find closest valid vertex to the mouse-click
         let closest = this.fullPathData[0];
@@ -122,15 +106,16 @@ export class MapEditor {
             }
         }
 
-        if (!this.spliceStartPt) {
-            this.spliceStartPt = closest;
-        } else if (!this.spliceEndPt) {
-            this.spliceEndPt = closest;
-        } else {
-            this.spliceStartPt = closest;
-            this.spliceEndPt = null;
+        if (!get(this.spliceStartPt)) {
+            this.spliceStartPt.set(closest);
         }
-
+        else if (!get(this.spliceEndPt)) {
+            this.spliceEndPt.set(closest);
+        } else {
+            this.spliceStartPt.set(closest);
+            this.spliceEndPt.set(null);
+        }
+        
         this.renderSpliceMarkers();
     }
 
@@ -138,28 +123,28 @@ export class MapEditor {
         this.spliceMarkers.forEach((m) => this.map.removeLayer(m));
         this.spliceMarkers = [];
 
-        if (this.spliceStartPt) {
-            const m = L.marker([this.spliceStartPt.lat, this.spliceStartPt.lng])
+        if (get(this.spliceStartPt)) {
+            const m = L.marker([get(this.spliceStartPt)!.lat, get(this.spliceStartPt)!.lng])
                 .addTo(this.map)
-                .bindPopup(`Point A (ID: ${this.spliceStartPt.id})`)
+                .bindPopup(`Point A (ID: ${get(this.spliceStartPt)!.id})`)
                 .openPopup();
             this.spliceMarkers.push(m);
         }
-        if (this.spliceEndPt) {
-            const m = L.marker([this.spliceEndPt.lat, this.spliceEndPt.lng])
+        if (get(this.spliceEndPt)) {
+            const m = L.marker([get(this.spliceEndPt)!.lat, get(this.spliceEndPt)!.lng])
                 .addTo(this.map)
-                .bindPopup(`Point B (ID: ${this.spliceEndPt.id})`)
+                .bindPopup(`Point B (ID: ${get(this.spliceEndPt)!.id})`)
                 .openPopup();
             this.spliceMarkers.push(m);
         }
     }
 
     toggleSpliceMode() {
-        this.isSpliceMode = !this.isSpliceMode;
-        if (!this.isSpliceMode) {
+        this.isSpliceMode.update(v => !v);
+        if (!get(this.isSpliceMode)) {
             // Clean up
-            this.spliceStartPt = null;
-            this.spliceEndPt = null;
+            this.spliceStartPt.set(null);
+            this.spliceEndPt.set(null);
             this.renderSpliceMarkers();
         } else {
             //Give UI notification indicating it has started
@@ -170,11 +155,11 @@ export class MapEditor {
     }
 
     async executeSplice() {
-        if (!this.spliceStartPt || !this.spliceEndPt) return;
+        if (!get(this.spliceStartPt) || !get(this.spliceEndPt)) return;
 
         if (
             !confirm(
-                `Delete all points between Point A (${this.spliceStartPt.id}) and Point B (${this.spliceEndPt.id})?`,
+                `Delete all points between Point A (${get(this.spliceStartPt)!.id}) and Point B (${get(this.spliceEndPt)!.id})?`,
             )
         )
             return;
@@ -184,8 +169,8 @@ export class MapEditor {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    startId: this.spliceStartPt.id,
-                    endId: this.spliceEndPt.id,
+                    startId: get(this.spliceStartPt)!.id,
+                    endId: get(this.spliceEndPt)!.id,
                 }),
             });
             if (res.ok) {
