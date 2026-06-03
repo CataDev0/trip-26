@@ -30,7 +30,7 @@
     <div class="modal-content">
       <h2>Secure Login</h2>
       <p style="font-size: 0.9em; color: #555;">
-        Authentication required to save data.
+        Authentication required
       </p>
       {#if errorMsg}<p style="color: red; font-size: 0.8em; margin: 0;">
           {errorMsg}

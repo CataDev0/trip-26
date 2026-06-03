@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from "svelte";
-  import { API_BASE } from "./Constants";
+  import { API_BASE, VISITOR_COUNT_REFRESH_INTERVAL } from "./Constants";
   import LoginModal from "./LoginModal.svelte";
 
   export let title: string;
@@ -33,7 +33,8 @@
           };
 
           fetchVisitors();
-          const visitorInterval = setInterval(fetchVisitors, 5 * 60 * 1000);
+          // Refresh visitor count every minute
+          const visitorInterval = setInterval(fetchVisitors, VISITOR_COUNT_REFRESH_INTERVAL);
 
           return () => {
               clearInterval(visitorInterval);

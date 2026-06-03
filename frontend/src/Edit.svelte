@@ -4,6 +4,7 @@
   import { getSharedMap } from "./sharedMap";
   import TopBar from "./TopBar.svelte";
   import { MapEditor } from "./edit";
+    import { getAuthHeader } from "./auth";
 
   let editor: MapEditor;
   let mapWrapper: HTMLDivElement;
@@ -28,6 +29,12 @@
           removalMode: true,
           rotateMode: false,
       });
+
+      const authHeader = getAuthHeader();
+      if (!(await authHeader).Authorization) {
+          // No auth, show login modal
+          window.dispatchEvent(new CustomEvent("require-login"));
+      }
   });
 
   $: spliceMode = editor?.isSpliceMode;

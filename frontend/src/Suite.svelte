@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import L from "leaflet";
   import { API_BASE } from "./Constants";
-  import { authFetch } from "./auth";
+  import { authFetch, getAuthHeader } from "./auth";
   import { Capacitor, registerPlugin } from "@capacitor/core";
   import type { BackgroundGeolocationPlugin } from "@capacitor-community/background-geolocation";
   import { getSharedMap } from "./sharedMap";
@@ -148,6 +148,12 @@
       document.addEventListener("visibilitychange", handleVisibilityChange);
 
       await loadData();
+
+      const authHeader = getAuthHeader();
+      if (!(await authHeader).Authorization) {
+          // No auth, show login modal
+          window.dispatchEvent(new CustomEvent("require-login"));
+      }
       return () => {
           document.removeEventListener("visibilitychange", handleVisibilityChange);
           delete (window as any).markVisited;
@@ -196,9 +202,8 @@
           // Fetch images in the background without blocking initial render
           locations.forEach(async (loc: LocationData, index: number) => {
               try {
-                  const wikiRes = await fetch(
-                      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(loc.name)}`,
-                  );
+                  const wikiUrl = new URL(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(loc.name)}`);
+                  const wikiRes = await fetch(wikiUrl);
                   if (wikiRes.ok) {
                       const wikiData = await wikiRes.json();
                       if (wikiData.thumbnail && wikiData.thumbnail.source) {
@@ -209,13 +214,21 @@
                       }
                   }
 
-                  const wdRes = await fetch(
-                      `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggsradius=100&ggscoord=${loc.lat}|${loc.lng}&prop=pageimages&pithumbsize=300&format=json&origin=*`,
-                  );
+                  const wdUrl = new URL("https://en.wikipedia.org/w/api.php");
+                  wdUrl.searchParams.set("action", "query");
+                  wdUrl.searchParams.set("generator", "geosearch");
+                  wdUrl.searchParams.set("ggsradius", "100");
+                  wdUrl.searchParams.set("ggscoord", `${loc.lat}|${loc.lng}`);
+                  wdUrl.searchParams.set("prop", "pageimages");
+                  wdUrl.searchParams.set("pithumbsize", "300");
+                  wdUrl.searchParams.set("format", "json");
+                  wdUrl.searchParams.set("origin", "*");
+                    
+                  const wdRes = await fetch(wdUrl);
                   if (wdRes.ok) {
                       const wdData = await wdRes.json();
                       if (wdData.query && wdData.query.pages) {
-                          const pages: any[] = Object.values(wdData.query.pages);
+                          const pages: { thumbnail?: { source?: string } }[] = Object.values(wdData.query.pages);
                           if (pages.length > 0 && pages[0].thumbnail) {
                               locations[index].imageUrl = pages[0].thumbnail.source;
                               locations = [...locations]; // trigger Svelte reactivity
@@ -223,7 +236,7 @@
                           }
                       }
                   }
-              } catch (e) {}
+              } catch { /* empty */ }
           });
       } catch (err) {
           console.error("Error initializing:", err);
@@ -545,8 +558,7 @@
         on:click={() => (sidebarExpanded = false)}>✕</button
       >
     </div>
-    {#each locations as loc}
-      <!-- svelte-ignore a11y-click-events-have-key-events - we just want a simple clickable div -->
+    {#each locations as loc (loc.id)}
       <div class="location-item" on:click={() => jumpToLocation(loc)}>
         {#if loc.imageUrl}
           <img class="location-img-thumb" src={loc.imageUrl} alt="" />
