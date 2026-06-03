@@ -1,5 +1,5 @@
 import L from "leaflet";
-import { AttractionData } from "./Typed";
+import { AttractionData } from "../typed/Typed";
 
 /**
  * Fetches nearby attractions using Overpass API and renders them on the map.
@@ -14,11 +14,12 @@ export async function fetchAndRenderAttractions(
     const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
     const query = `[out:json][timeout:25];(node["tourism"="museum"](${bbox});node["historic"](${bbox});node["tourism"="attraction"](${bbox}););out;`;
 
+    const url = new URL("https://overpass-api.de/api/interpreter");
+    url.searchParams.set("data", query);
+
     let res;
     for (let i = 0; i < 3; i++) {
-        res = await fetch(
-            `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
-        );
+        res = await fetch(url);
         if (res.ok) break;
         // Retry on 504 (Gateway Timeout) or 429 (Too Many Requests)
         if (res.status === 504 || res.status === 429) {
@@ -43,7 +44,6 @@ export async function fetchAndRenderAttractions(
 
     data.elements.forEach((el: AttractionData) => {
         if (el.lat && el.lon && el.tags) {
-            console.log(el.tags);
             let type = el.tags.tourism || el.tags.historic || el.tags.amenity;
 
             // Better classification handling for generic or composite tags
@@ -78,7 +78,7 @@ export async function fetchAndRenderAttractions(
 
             let linkUrl = el.tags.website || el.tags.url;
             if (!linkUrl && el.tags.wikipedia) {
-                const wikiMatch = el.tags.wikipedia.match(/^([a-z\-]+):(.*)$/);
+                const wikiMatch = el.tags.wikipedia.match(/^([a-z-]+):(.*)$/);
                 if (wikiMatch) {
                     linkUrl = `https://${wikiMatch[1]}.wikipedia.org/wiki/${encodeURIComponent(wikiMatch[2])}`;
                 } else {

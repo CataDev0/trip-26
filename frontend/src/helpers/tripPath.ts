@@ -1,7 +1,10 @@
 import L from "leaflet";
 import type { PathPoint } from "./mapData";
+import { gpsPath } from "../stores/tripStore";
+import { get } from "svelte/store";
 
 export type LatLngTuple = [number, number];
+let pathLayerGroup: L.LayerGroup | null = null;
 
 // Convert array of PathPoint to array of LatLngTuple for Leaflet
 export function toLatLngPath(pathData: PathPoint[]): LatLngTuple[] {
@@ -108,4 +111,8 @@ export function renderTripPath(
     }
 
     return L.layerGroup(segments).addTo(map);
+}
+
+export function renderPath(map: L.Map) {
+    pathLayerGroup = renderTripPath(map, get(gpsPath), pathLayerGroup) ?? null;
 }

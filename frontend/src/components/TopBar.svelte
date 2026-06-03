@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from "svelte";
-  import { API_BASE, VISITOR_COUNT_REFRESH_INTERVAL } from "./Constants";
   import LoginModal from "./LoginModal.svelte";
+  import { API_BASE, VISITOR_COUNT_REFRESH_INTERVAL } from "../helpers/Constants";
 
   export let title: string;
   export let showSidebarToggle: boolean = false;

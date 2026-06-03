@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { setAuthCredentials } from "./auth";
+    import { setAuthCredentials } from "../helpers/auth";
 
   let show = false;
   let username = "";

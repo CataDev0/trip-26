@@ -327,18 +327,18 @@ export class MapEditor {
         const newPathData: PathPoint[] = [];
         let baseTime = new Date("2020-01-01T00:00:00Z").getTime();
 
-        this.pathLayerGroup.eachLayer((layer: any) => {
+        this.pathLayerGroup.eachLayer((layer: L.Layer) => {
             if (layer instanceof L.Polyline) {
-                const latlngs = layer.getLatLngs() as L.LatLng[] | L.LatLng[][];
-                const flatten = (arr: any[]): L.LatLng[] => {
+                const latlngs = layer.getLatLngs();
+                const flatten = (arr: L.LatLng[] | L.LatLng[][] | L.LatLng[][][]): L.LatLng[] => {
                     if (!arr || arr.length === 0) return [];
                     if (Array.isArray(arr[0])) {
-                        return arr.flatMap(flatten);
+                        return arr.flatMap(flatten as any);
                     }
-                    return arr;
+                    return arr as L.LatLng[];
                 };
 
-                const flatLatLngs = flatten(latlngs as any[]);
+                const flatLatLngs = flatten(latlngs);
 
                 flatLatLngs.forEach((ll, index) => {
                     newPathData.push({
