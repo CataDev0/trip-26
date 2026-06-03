@@ -3,24 +3,26 @@ import type { PathPoint } from "./mapData";
 
 export type LatLngTuple = [number, number];
 
+// Convert array of PathPoint to array of LatLngTuple for Leaflet
 export function toLatLngPath(pathData: PathPoint[]): LatLngTuple[] {
     return pathData.map((point) => [point.lat, point.lng] as LatLngTuple);
 }
 
+// Haversine formula to calculate distance between two lat/lng points in meters
 export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
     const earthRadius = 6371000;
     const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
     const deltaLat = toRadians(lat2 - lat1);
     const deltaLng = toRadians(lng2 - lng1);
-    const a =
-        Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-    Math.cos(toRadians(lat1)) *
-    Math.cos(toRadians(lat2)) *
-    Math.sin(deltaLng / 2) *
-    Math.sin(deltaLng / 2);
+    const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+        Math.cos(toRadians(lat1)) *
+        Math.cos(toRadians(lat2)) *
+        Math.sin(deltaLng / 2) *
+        Math.sin(deltaLng / 2);
     return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Split path data into separate trips based on time gaps and distance gaps
 export function splitTripsByGap(
     pathData: PathPoint[],
     gapMinutes = 30,
@@ -67,6 +69,7 @@ export function splitTripsByGap(
     return trips;
 }
 
+// Render the trip path on the map, splitting into segments with color gradient
 export function renderTripPath(
     map: L.Map,
     pathData: PathPoint[],
