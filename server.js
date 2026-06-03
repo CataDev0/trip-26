@@ -5,23 +5,11 @@ const sqlite = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const Utils = require("./Utils.mjs");
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
-
-function haversineMeters(lat1, lng1, lat2, lng2) {
-    const earthRadius = 6371000;
-    const toRadians = (degrees) => (degrees * Math.PI) / 180;
-    const deltaLat = toRadians(lat2 - lat1);
-    const deltaLng = toRadians(lng2 - lng1);
-    const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-    Math.cos(toRadians(lat1)) *
-    Math.cos(toRadians(lat2)) *
-    Math.sin(deltaLng / 2) *
-    Math.sin(deltaLng / 2);
-    return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 // Simple Basic Authentication Middleware
 app.use((req, res, next) => {
@@ -178,7 +166,7 @@ app.post("/api/path", (req, res) => {
         for (const pt of pts) {
             if (pt.lat !== undefined && pt.lng !== undefined) {
                 if (lastLat !== null && lastLng !== null) {
-                    const distance = haversineMeters(lastLat, lastLng, pt.lat, pt.lng);
+                    const distance = Utils.haversineMeters(lastLat, lastLng, pt.lat, pt.lng);
                     if (distance < 5) {
                         continue;
                     }
@@ -203,129 +191,6 @@ app.get("/api/path", (req, res) => {
         )
         .all();
     res.json(pathData);
-});
-
-// Math helpers for DP
-function segDistSq(pt, p1, p2) {
-    let x = p1.lat;
-    let y = p1.lng;
-    let dx = p2.lat - x;
-    let dy = p2.lng - y;
-
-    if (dx !== 0 || dy !== 0) {
-        const t = ((pt.lat - x) * dx + (pt.lng - y) * dy) / (dx * dx + dy * dy);
-        if (t > 1) {
-            x = p2.lat;
-            y = p2.lng;
-        } else if (t > 0) {
-            x += dx * t;
-            y += dy * t;
-        }
-    }
-
-    dx = pt.lat - x;
-    dy = pt.lng - y;
-
-    // Scale longitude by cos(latitude)
-    const latRad = pt.lat * (Math.PI / 180);
-    dy = dy * Math.cos(latRad);
-
-    return dx * dx + dy * dy;
-}
-
-// Douglas-Peucker simplification
-function simplifyDPStep(points, first, last, sqTolerance, keptSet) {
-    let maxSqDist = sqTolerance;
-    let index = -1;
-
-    for (let i = first + 1; i < last; i++) {
-        const sqDist = segDistSq(points[i], points[first], points[last]);
-        if (sqDist > maxSqDist) {
-            index = i;
-            maxSqDist = sqDist;
-        }
-    }
-
-    if (maxSqDist > sqTolerance) {
-        if (index - first > 1)
-            simplifyDPStep(points, first, index, sqTolerance, keptSet);
-        keptSet.add(points[index].id);
-        if (last - index > 1)
-            simplifyDPStep(points, index, last, sqTolerance, keptSet);
-    }
-}
-
-function simplifyDP(points, distanceThresholdMeters) {
-    if (points.length <= 2) return new Set(points.map((p) => p.id));
-
-    const tolDegrees = distanceThresholdMeters / 111320;
-    const sqTolerance = tolDegrees * tolDegrees;
-
-    const keptSet = new Set();
-    const last = points.length - 1;
-
-    keptSet.add(points[0].id);
-    simplifyDPStep(points, 0, last, sqTolerance, keptSet);
-    keptSet.add(points[last].id);
-
-    return keptSet;
-}
-
-// Normalize the GPS path: simplifies points using Douglas-Peucker inside selection bounds
-app.post("/api/path/normalize", (req, res) => {
-    const bounds = req.body.bounds; // optional: { minLat, maxLat, minLng, maxLng }
-    const distanceThreshold = req.body.distance || 30;
-
-    const points = db
-        .prepare("SELECT id, lat, lng FROM gps_path ORDER BY timestamp ASC")
-        .all();
-    if (points.length < 2) return res.json({ success: true, removed: 0 });
-
-    let removed = 0;
-    const deleteStmt = db.prepare("DELETE FROM gps_path WHERE id = ?");
-
-    let currentSegment = [];
-
-    const processSegment = () => {
-        if (currentSegment.length <= 2) return;
-        const kept = simplifyDP(currentSegment, distanceThreshold);
-        for (const pt of currentSegment) {
-            if (!kept.has(pt.id)) {
-                deleteStmt.run(pt.id);
-                removed++;
-            }
-        }
-    };
-
-    db.transaction(() => {
-        for (let i = 0; i < points.length; i++) {
-            const pt = points[i];
-
-            let inBounds = true;
-            if (bounds) {
-                inBounds =
-                    pt.lat >= bounds.minLat &&
-          pt.lat <= bounds.maxLat &&
-          pt.lng >= bounds.minLng &&
-          pt.lng <= bounds.maxLng;
-            }
-
-            if (inBounds) {
-                currentSegment.push(pt);
-            } else {
-                if (currentSegment.length > 0) {
-                    // To ensure DP connects perfectly, we theoretically need to include
-                    // the bounding outside points as constraints, but just doing it
-                    // on the inside sequence is usually enough.
-                    processSegment();
-                    currentSegment = [];
-                }
-            }
-        }
-        if (currentSegment.length > 0) processSegment();
-    })();
-
-    res.json({ success: true, removed });
 });
 
 // Replace the full GPS path
@@ -372,7 +237,6 @@ app.get("/api/speed-limit", async (req, res) => {
         url.searchParams.set("showNavAttributes", "speedLimits");
         url.searchParams.set("apikey", apiKey);
 
-        // Node.js 18+ has native fetch
         const response = await fetch(url);
         const data = await response.json();
 
@@ -447,7 +311,7 @@ app.delete("/api/path/splice", (req, res) => {
     if (!startId || !endId) return res.status(400).json({ error: "Missing startId or endId" });
 
     try {
-    // Sort IDs to allow backward/forward selection
+        // Sort IDs to allow backward/forward selection
         const bounds = [startId, endId].sort((a, b) => a - b);
         const result = db.prepare("DELETE FROM gps_path WHERE id >= ? AND id <= ?").run(bounds[0], bounds[1]);
 
@@ -478,5 +342,5 @@ app.listen(PORT, "0.0.0.0", () => {
     const localIp = results.length > 0 ? results[0] : "localhost";
 
     console.log(`Server is running locally at http://localhost:${PORT}`);
-    console.log(`Access on your phone using   http://${localIp}:${PORT}`);
+    console.log(`Access on LAN using http://${localIp}:${PORT}`);
 });
