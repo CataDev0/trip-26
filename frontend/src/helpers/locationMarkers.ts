@@ -3,6 +3,7 @@ import { authFetch } from "./auth";
 import { API_BASE } from "./Constants";
 import { LocationData } from "./mapData";
 import { get, writable } from "svelte/store";
+import { canSaveLocations } from "../stores/editStore";
 
 const defaultIcon = new L.Icon.Default();
 const visitedIcon = new L.Icon({
@@ -87,7 +88,7 @@ export function getMarker(id: number) {
     return markers[id];
 }
 
-export function createPopupContent(loc: LocationData, isVisited: boolean, canSave?: boolean): string {
+export function createPopupContent(loc: LocationData, isVisited: boolean): string {
     return `
       <div style="text-align: center; min-width: 120px;">
         ${loc.imageUrl ? `<img src="${loc.imageUrl}" alt="${loc.name}" style="width:100%; max-height:100px; object-fit:cover; border-radius:4px; margin-bottom:5px;" /><br>` : ""}
@@ -95,7 +96,7 @@ export function createPopupContent(loc: LocationData, isVisited: boolean, canSav
         ${
             isVisited
                 ? "<span style=\"color:#28a745;font-weight:bold;\">✓ Visited</span>"
-                : canSave 
+                : get(canSaveLocations) 
                     ? `<button style="margin-top:5px;padding:4px;cursor:pointer;" onclick="window.markVisited(${loc.id})">Mark as Visited</button>` 
                     : ""
         }
@@ -103,14 +104,14 @@ export function createPopupContent(loc: LocationData, isVisited: boolean, canSav
     `;
 }
 
-export function renderLocations(map: L.Map, canSave?: boolean) {
+export function renderLocations(map: L.Map) {
     get(locations).forEach((loc) => {
         const isVisited = get(visitedIds).has(loc.id);
         const marker = L.marker([loc.lat, loc.lng], {
             icon: isVisited ? visitedIcon : defaultIcon,
         })
             .addTo(map)
-            .bindPopup(createPopupContent(loc, isVisited, canSave));
+            .bindPopup(createPopupContent(loc, isVisited));
 
         markers[loc.id] = marker;
     });

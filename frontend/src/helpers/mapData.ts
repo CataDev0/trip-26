@@ -133,7 +133,7 @@ export async function loadData(map: L.Map, canSave: boolean) {
                                 locs[index].imageUrl = pages[0].thumbnail?.source;
                                 return locs;
                             });
-                            updateMarkerPopup(loc);
+                            updateMarkerPopup(loc, canSave);
                         }
                     }
                 }

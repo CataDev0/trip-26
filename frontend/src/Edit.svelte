@@ -5,6 +5,7 @@
   import { MapEditor } from "./helpers/edit";
   import { getAuthHeader } from "./helpers/auth";
   import { getSharedMap } from "./helpers/sharedMap";
+    import { canSaveLocations } from "./stores/editStore";
 
   let editor: MapEditor;
   let mapWrapper: HTMLDivElement;
@@ -29,6 +30,9 @@
           removalMode: true,
           rotateMode: false,
       });
+      
+      // Enable save buttons in edit view
+      canSaveLocations.update(() => true); 
 
       const authHeader = getAuthHeader();
       if (!(await authHeader).Authorization) {

@@ -9,6 +9,7 @@
   import { getSharedMap } from "./helpers/sharedMap";
   import { getMarker } from "./helpers/locationMarkers";
   import SideBar from "./components/SideBar.svelte";
+    import { canSaveLocations } from "./stores/editStore";
 
   let map: L.Map;
   let mapContainer: HTMLDivElement;
@@ -34,6 +35,7 @@
           map.invalidateSize();
       }, 10);
 
+      canSaveLocations.update(() => false); // Disable save buttons on main view
       await loadData(map, false);
   });
 

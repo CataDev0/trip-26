@@ -15,6 +15,7 @@
     import { getAuthHeader } from "./helpers/auth";
     import { getSharedMap } from "./helpers/sharedMap";
     import SideBar from "./components/SideBar.svelte";
+    import { canSaveLocations } from "./stores/editStore";
 
     let map: L.Map;
     let mapContainer: HTMLDivElement;
@@ -35,6 +36,9 @@
 
         tracker = new Gps(map);
 
+        // Enable save buttons in edit view
+        canSaveLocations.update(() => true); 
+        
         currentZoom = map.getZoom() || 13;
         map.on("zoomend", () => {
             currentZoom = map.getZoom();
