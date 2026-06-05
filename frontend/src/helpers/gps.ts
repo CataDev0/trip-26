@@ -1,11 +1,11 @@
-import { get, writable } from "svelte/store";
+import { get } from "svelte/store";
 import { API_BASE } from "./Constants";
 import { authFetch } from "./auth";
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import L from "leaflet";
 import { BackgroundGeolocationPlugin } from "@capacitor-community/background-geolocation";
 import { renderPath } from "./tripPath";
-import { gpsPath } from "../stores/tripStore";
+import { autoFollow, currentSpeedKmH, currentSpeedLimit, gpsPath, gpsStatus, isTracking } from "../stores/tripStore";
 
 export class Gps {
     private map: L.Map;
@@ -18,13 +18,6 @@ export class Gps {
     );
     private BackgroundGeolocation: BackgroundGeolocationPlugin;
 
-    // Reactive stores for the Svelte UI
-    public isTracking = writable(false);
-    public autoFollow = writable(true);
-    public gpsStatus = writable("GPS: Not tracking");
-    public currentSpeedKmH = writable<number>(0);
-    public currentSpeedLimit = writable<number | null>(null);
-
     constructor(map: L.Map) {
         this.map = map;
 
@@ -34,8 +27,8 @@ export class Gps {
     }
 
     public async startTracking() {
-        this.isTracking.set(true);
-        this.gpsStatus.update(() => "GPS: Acquiring signal...");
+        isTracking.set(true);
+        gpsStatus.update(() => "Acquiring signal...");
         this.requestWakeLock();
         this.flushOfflineQueue(); // Try to flush any old points when we start
 
@@ -51,7 +44,7 @@ export class Gps {
                 async (position, error) => {
                     if (error) {
                         const msg = error.message || "Unknown error";
-                        this.gpsStatus.update(() => `GPS Error: ${msg}`);
+                        gpsStatus.update(() => `GPS Error: ${msg}`);
                         this.stopTracking();
                         return;
                     }
@@ -84,7 +77,7 @@ export class Gps {
                     else if (error.code === 2) msg = "Position unavailable.";
                     else if (error.code === 3) msg = "Timeout acquiring GPS signal.";
 
-                    this.gpsStatus.update(() => `GPS Error: ${msg}`);
+                    gpsStatus.update(() => `GPS Error: ${msg}`);
                     this.stopTracking();
                 },
                 { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 },
@@ -105,11 +98,11 @@ export class Gps {
                 this.wakeLock = null;
             });
         }
-        this.isTracking.update(() => false);
-        this.currentSpeedKmH.update(() => 0);
-        this.currentSpeedLimit.update(() => null);
-        this.autoFollow.update(() => true);
-        this.gpsStatus.update(() => "GPS: Stopped");
+        isTracking.set(false);
+        currentSpeedKmH.set(0);
+        currentSpeedLimit.set(null);
+        autoFollow.set(true);
+        gpsStatus.set("GPS: Stopped");
         if (this.currentPositionMarker) {
             this.map.removeLayer(this.currentPositionMarker);
             this.currentPositionMarker = null;
@@ -118,7 +111,7 @@ export class Gps {
 
     public centerOnCurrentPos() {
         if (this.currentPositionMarker) {
-            this.autoFollow.update(() => true);
+            autoFollow.set(true);
             this.map.setView(this.currentPositionMarker.getLatLng(), 15);
         } else {
             alert("No GPS position available yet.");
@@ -159,7 +152,7 @@ export class Gps {
             );
             if (!res.ok) throw new Error("Proxy failed");
             const data = await res.json();
-            this.currentSpeedLimit = data.speedLimit;
+            currentSpeedLimit.update(() => data.speedLimit);
         } catch (e) {
             console.error("Failed to fetch speed limit from proxy", e);
         }
@@ -169,17 +162,17 @@ export class Gps {
         lng: number,
         accuracy: number,
         speed: number | null | undefined) {
-        this.gpsStatus.update(() => `GPS: Tracking (${accuracy.toFixed(1)}m accuracy)`);
+        gpsStatus.update(() => `Tracking (${accuracy.toFixed(1)}m accuracy)`);
         if (speed !== null && speed !== undefined) {
             const kmh = speed * 3.6;
-            this.currentSpeedKmH.set(kmh);
+            currentSpeedKmH.set(kmh);
 
             if (kmh > 10 && Date.now() - this.lastSpeedLimitFetch > 15000) {
                 this.lastSpeedLimitFetch = Date.now();
                 this.fetchSpeedLimit(lat, lng);
             }
         } else {
-            this.currentSpeedKmH.set(0);
+            currentSpeedKmH.set(0);
         }
 
         if (accuracy > 20) return;
@@ -193,10 +186,10 @@ export class Gps {
                 opacity: 1,
                 fillOpacity: 0.8,
             }).addTo(this.map);
-            if (this.autoFollow) this.map.setView([lat, lng], 15);
+            if (get(autoFollow)) this.map.setView([lat, lng], 15);
         } else {
             this.currentPositionMarker.setLatLng([lat, lng]);
-            if (this.autoFollow) this.map.setView([lat, lng]);
+            if (get(autoFollow)) this.map.setView([lat, lng], 15);
         }
 
         const lastPoint = get(gpsPath)[get(gpsPath).length - 1];
@@ -208,7 +201,7 @@ export class Gps {
 
         if (shouldSave) {
             gpsPath.update(path => [...path, { lat, lng, timestamp: new Date().toISOString() }]);
-            renderPath(this.map, get(gpsPath));
+            renderPath(this.map);
 
             if (this.offlineQueue.length > 0) {
                 this.offlineQueue.push({ lat, lng });
@@ -234,7 +227,7 @@ export class Gps {
     public handleVisibilityChange = () => {
         if (this.wakeLock !== null &&
         document.visibilityState === "visible" &&
-        this.isTracking
+        get(isTracking)
         ) {
             this.requestWakeLock();
         }

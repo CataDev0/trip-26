@@ -35,8 +35,9 @@
           map.invalidateSize();
       }, 10);
 
-      canSaveLocations.update(() => false); // Disable save buttons on main view
-      await loadData(map, false);
+      // Disable save buttons in main view
+      canSaveLocations.update(() => false); 
+      await loadData(map);
   });
 
   async function findAttractions() {
