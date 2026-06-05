@@ -147,7 +147,7 @@ export class MapEditor {
         }
     }
 
-    async executeSplice() {
+    async executeSplice(currentBounds?: L.LatLngBounds) {
         if (!get(spliceStartPt) || !get(spliceEndPt)) return;
 
         if (
@@ -173,6 +173,9 @@ export class MapEditor {
                 // Refresh the path visual
                 await this.loadPath();
                 await this.loadData();
+                if (currentBounds) {
+                    this.map.fitBounds(currentBounds);
+                }
             } else {
                 alert("Failed to splice path.");
             }

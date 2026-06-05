@@ -3,6 +3,7 @@
     import L from "leaflet";
 
     import TopBar from "./components/TopBar.svelte";
+    import SideBar from "./components/SideBar.svelte";
     import {
         loadData,
         type LocationData,
@@ -14,7 +15,6 @@
     import { fetchAndRenderAttractions, saveAttraction } from "./helpers/attractions";
     import { getAuthHeader } from "./helpers/auth";
     import { getSharedMap } from "./helpers/sharedMap";
-    import SideBar from "./components/SideBar.svelte";
     import { canSaveLocations } from "./stores/editStore";
     import { autoFollow, isTracking, gpsStatus, currentSpeedLimit, currentSpeedKmH } from "./stores/tripStore";
 
@@ -163,12 +163,12 @@
         {#if $isTracking}
             <!-- Waze-style Speedometer -->
             <div
-                class="waze-speedometer {$currentSpeedLimit &&
+                class="waze-speedometer {($currentSpeedLimit && $currentSpeedKmH) &&
                 $currentSpeedKmH > $currentSpeedLimit
                     ? "over-speed"
                     : ""}"
             >
-                <div class="speed-value">{$currentSpeedKmH}</div>
+                <div class="speed-value">{$currentSpeedKmH || "--"}</div>
                 <div class="speed-unit">km/h</div>
 
                 <!-- Optional Speed Limit Sign -->
