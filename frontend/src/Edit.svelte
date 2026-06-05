@@ -2,10 +2,11 @@
   import { onMount } from "svelte";
   import "@geoman-io/leaflet-geoman-free";
   import TopBar from "./components/TopBar.svelte";
-  import { MapEditor } from "./helpers/edit";
+  import { LeafletWindow, MapEditor } from "./helpers/edit";
   import { getAuthHeader } from "./helpers/auth";
   import { getSharedMap } from "./helpers/sharedMap";
-    import { canSaveLocations } from "./stores/editStore";
+  import { canSaveLocations } from "./stores/editStore";
+  import { isSpliceMode, spliceEndPt, spliceStartPt } from "./stores/editStore";
 
   let editor: MapEditor;
   let mapWrapper: HTMLDivElement;
@@ -34,16 +35,28 @@
       // Enable save buttons in edit view
       canSaveLocations.update(() => true); 
 
+      // Global hooks inside popup HTML snippets
+      (window as LeafletWindow).editLocName = (id: number, newName: string) => editor.editLocName(id, newName);
+      (window as LeafletWindow).deleteLoc = (id: number) => editor.deleteLoc(id);
+
       const authHeader = getAuthHeader();
       if (!(await authHeader).Authorization) {
       // No auth, show login modal
           window.dispatchEvent(new CustomEvent("require-login"));
       }
-  });
 
-  $: spliceMode = editor?.isSpliceMode;
-  $: spliceStartPt = editor?.spliceStartPt;
-  $: spliceEndPt = editor?.spliceEndPt;
+      return () => {
+          delete (window as LeafletWindow).editLocName;
+          delete (window as LeafletWindow).deleteLoc;
+          if (map) {
+              map.off("pm:create");
+              map.off("pm:remove");
+              map.pm.removeControls();
+              map.pm.disableDraw();
+              if (editor.pathLayerGroup) map.removeLayer(editor.pathLayerGroup);
+          }
+      };
+  });
 </script>
 
 <TopBar
@@ -52,18 +65,7 @@
   statusText="Use the Geoman toolbar to draw shapes or edit paths."
 >
   <svelte:fragment slot="buttons">
-    {#if $spliceMode}
-      <span
-        style="background: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 10px;"
-      >
-        A: {$spliceStartPt
-            ? `${$spliceStartPt.lat.toFixed(4)}, ${$spliceStartPt.lng.toFixed(4)}`
-            : "..."} | B: {$spliceEndPt
-                ? `${$spliceEndPt.lat.toFixed(4)}, ${$spliceEndPt.lng.toFixed(4)}`
-                : "..."}
-      </span>
-
-      {#if $spliceStartPt && $spliceEndPt}
+    {#if $isSpliceMode && $spliceStartPt && $spliceEndPt}
         <button
           class="btn"
           style="background-color: #dc3545; margin-right: 5px;"
@@ -71,17 +73,16 @@
         >
           Execute Splice
         </button>
-      {/if}
     {/if}
 
     <button
       class="btn"
-      style="background-color: {$spliceMode
+      style="background-color: {$isSpliceMode
           ? "#17a2b8"
           : "#6f42c1"}; margin-right: 5px;"
       on:click={() => editor?.toggleSpliceMode()}
     >
-      {$spliceMode ? "Cancel Splice" : "Splice Mode"}
+      {$isSpliceMode ? "Cancel Splice" : "Splice Mode"}
     </button>
 
     <button

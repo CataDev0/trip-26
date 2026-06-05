@@ -1,5 +1,10 @@
 import L from "leaflet";
 import { AttractionData } from "../typed/Typed";
+import { authFetch } from "./auth";
+import { API_BASE } from "./Constants";
+import { locations, createPopupContent, setMarker } from "./locationMarkers";
+
+const defaultIcon = new L.Icon.Default();
 
 /**
  * Fetches nearby attractions using Overpass API and renders them on the map.
@@ -109,4 +114,33 @@ export async function fetchAndRenderAttractions(
                 .bindPopup(popupContent);
         }
     });
+}
+
+export async function saveAttraction(map: L.Map, name: string, lat: number, lng: number) {
+    try {
+        const res = await authFetch(API_BASE + "/api/locations/single", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, lat, lng }),
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            // Add to local state
+            const newLoc = { id: data.id, name, lat, lng };
+            locations.update((locs) => [...locs, newLoc]);
+
+            // Render marker
+            const marker = L.marker([lat, lng], { icon: defaultIcon })
+                .addTo(map)
+                .bindPopup(createPopupContent(newLoc, false));
+            setMarker(newLoc.id, marker);
+            alert("Attraction saved to locations!");
+        } else {
+            alert("Failed to save attraction.");
+        }
+    } catch (err) {
+        console.error("Error saving attraction:", err);
+        alert("Error saving attraction.");
+    }
 }

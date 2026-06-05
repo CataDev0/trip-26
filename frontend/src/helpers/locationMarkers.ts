@@ -48,35 +48,6 @@ export async function markVisited(id: number) {
     }
 };
 
-export async function saveAttraction(map: L.Map, name: string, lat: number, lng: number) {
-    try {
-        const res = await authFetch(API_BASE + "/api/locations/single", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, lat, lng }),
-        });
-
-        if (res.ok) {
-            const data = await res.json();
-            // Add to local state
-            const newLoc = { id: data.id, name, lat, lng };
-            locations.update((locs) => [...locs, newLoc]);
-
-            // Render marker
-            const marker = L.marker([lat, lng], { icon: defaultIcon })
-                .addTo(map)
-                .bindPopup(createPopupContent(newLoc, false));
-            markers[newLoc.id] = marker;
-            alert("Attraction saved to locations!");
-        } else {
-            alert("Failed to save attraction.");
-        }
-    } catch (err) {
-        console.error("Error saving attraction:", err);
-        alert("Error saving attraction.");
-    }
-}
-
 export function updateMarkerPopup(loc: LocationData) {
     const marker = markers[loc.id];
     if (marker && marker.getPopup()) {
@@ -86,6 +57,10 @@ export function updateMarkerPopup(loc: LocationData) {
 
 export function getMarker(id: number) {
     return markers[id];
+}
+
+export function setMarker(id: number, marker: L.Marker) {
+    markers[id] = marker;
 }
 
 export function createPopupContent(loc: LocationData, isVisited: boolean): string {
@@ -113,6 +88,6 @@ export function renderLocations(map: L.Map) {
             .addTo(map)
             .bindPopup(createPopupContent(loc, isVisited));
 
-        markers[loc.id] = marker;
+        setMarker(loc.id, marker);
     });
 }

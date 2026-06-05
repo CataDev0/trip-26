@@ -57,7 +57,7 @@ export async function loadMapBootstrapData(): Promise<MapBootstrapData> {
     };
 }
 
-export async function loadData(map: L.Map, canSave: boolean) {
+export async function loadData(map: L.Map) {
     try {
         const data = await loadMapBootstrapData();
 
@@ -65,7 +65,7 @@ export async function loadData(map: L.Map, canSave: boolean) {
         visitedIds.update(() => data.visitedIds);
         gpsPath.update(() => data.pathData);
 
-        renderLocations(map, canSave);
+        renderLocations(map);
         renderPath(map);
 
         const setFallbackView = () => {
@@ -133,7 +133,7 @@ export async function loadData(map: L.Map, canSave: boolean) {
                                 locs[index].imageUrl = pages[0].thumbnail?.source;
                                 return locs;
                             });
-                            updateMarkerPopup(loc, canSave);
+                            updateMarkerPopup(loc);
                         }
                     }
                 }

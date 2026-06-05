@@ -9,9 +9,9 @@
     } from "./helpers/mapData";
     import type { LeafletWindow } from "./typed/Typed";
     import { Gps } from "./helpers/gps";
-    import { getMarker, markVisited, saveAttraction } from "./helpers/locationMarkers";
+    import { getMarker, markVisited } from "./helpers/locationMarkers";
     import { MIN_ATTRACTIONS_ZOOM } from "./helpers/Constants";
-    import { fetchAndRenderAttractions } from "./helpers/attractions";
+    import { fetchAndRenderAttractions, saveAttraction } from "./helpers/attractions";
     import { getAuthHeader } from "./helpers/auth";
     import { getSharedMap } from "./helpers/sharedMap";
     import SideBar from "./components/SideBar.svelte";
@@ -32,7 +32,7 @@
 
     onMount(async () => {
         const { map: sharedMap, container } = getSharedMap();
-        map = sharedMap; // Use the stored Leaflet map reference
+        map = sharedMap;
 
         tracker = new Gps(map);
 
@@ -59,15 +59,15 @@
         }, 10);
 
         // Create global function for popup buttons
-        (window as LeafletWindow).markVisited = markVisited;
-        (window as LeafletWindow).saveAttraction = saveAttraction;
+        (window as LeafletWindow).markVisited = (id) => markVisited(id);
+        (window as LeafletWindow).saveAttraction = (map, name, lat, lng) => saveAttraction(map, name, lat, lng);
 
         document.addEventListener(
             "visibilitychange",
             tracker.handleVisibilityChange,
         );
 
-        await loadData(map, true);
+        await loadData(map);
 
         const authHeader = getAuthHeader();
         if (!(await authHeader).Authorization) {

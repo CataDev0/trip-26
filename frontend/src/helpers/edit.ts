@@ -3,22 +3,23 @@ import { loadMapBootstrapData, LocationData, PathPoint } from "./mapData";
 import { API_BASE } from "./Constants";
 import { splitTripsByGap } from "./tripPath";
 import { authFetch } from "./auth";
-import { get, Writable, writable } from "svelte/store";
+import { get } from "svelte/store";
+import { isSpliceMode, locations, markers, spliceEndPt, spliceStartPt } from "../stores/editStore";
+
+export type LeafletWindow = Window & typeof globalThis & {
+    editLocName?: (id: number, newName: string) => void;
+    deleteLoc?: (id: number) => void;
+};
 
 export class MapEditor {
     public map: L.Map;
-    public locations: LocationData[] = [];
 
     private pathLines: L.Polyline[] = [];
-    private markers: L.Layer[] = [];
     public pathLayerGroup: FeatureGroup | undefined;
     private drawnGeomanShapes: L.Layer[] = [];
 
     // Timeline Splicing Cut Variables
     private fullPathData: PathPoint[] = [];
-    public isSpliceMode = writable(false);
-    public spliceStartPt: Writable<PathPoint | null> = writable(null);
-    public spliceEndPt: Writable<PathPoint | null> = writable(null);
     private spliceMarkers: L.Marker[] = [];
 
     private defaultIcon = new L.Icon.Default();
@@ -38,29 +39,18 @@ export class MapEditor {
                 this.loadData();
             });
 
-        // Global hooks inside popup HTML snippets
-        (window as any).editLocName = (id: number, newName: string) => {
-            this.locations[id].name = newName;
-        };
-
-        (window as any).deleteLoc = (id: number) => {
-            this.locations.splice(id, 1);
-            this.locations = [...this.locations];
-            this.renderLocations();
-        };
-
         this.map.on("pm:create", (e) => {
-            if (e.type === "Marker") {
-                const ll = (e.layer as L.Marker).getLatLng();
+            if (e.shape === "Marker") {
                 const newLoc: LocationData = {
-                    id: this.locations.length,
+                    id: get(locations).length,
                     name: "New Location",
-                    lat: ll.lat,
-                    lng: ll.lng,
+                    lat: (e.layer as L.Marker).getLatLng().lat,
+                    lng: (e.layer as L.Marker).getLatLng().lng,
                 };
-                this.locations = [...this.locations, newLoc];
-                this.renderLocations();
+
                 this.map.removeLayer(e.layer);
+                locations.update((locs) => [...locs, newLoc]);
+                this.renderLocations();
             }
         });
 
@@ -72,25 +62,28 @@ export class MapEditor {
 
         // Add map click listener
         this.map.on("click", (e) => {
-            if (!get(this.isSpliceMode)) return;
+            if (!get(isSpliceMode)) return;
             this.handleSpliceLocationSelection(e.latlng.lat, e.latlng.lng);
         });
-
-        (() => {
-            delete (window as any).editLocName;
-            delete (window as any).deleteLoc;
-            if (this.map) {
-                this.map.off("pm:create");
-                this.map.off("pm:remove");
-                this.map.pm.removeControls();
-                this.map.pm.disableDraw();
-                if (this.pathLayerGroup) this.map.removeLayer(this.pathLayerGroup);
-            }
-        })();
     }
 
+    editLocName(id: number, newName: string) {
+        locations.update((locs) => {
+            locs[id].name = newName;
+            return locs;
+        });
+    };
+
+    deleteLoc(id: number) {
+        locations.update((locs) => {
+            locs.splice(id, 1);
+            return locs;
+        });
+        this.renderLocations();
+    };
+
     handleSpliceLocationSelection(lat: number, lng: number) {
-        if (!this.fullPathData || this.fullPathData.length === 0 || !get(this.isSpliceMode)) return;
+        if (!this.fullPathData || this.fullPathData.length === 0 || !get(isSpliceMode)) return;
 
         // Find closest valid vertex to the mouse-click
         let closest = this.fullPathData[0];
@@ -106,14 +99,14 @@ export class MapEditor {
             }
         }
 
-        if (!get(this.spliceStartPt)) {
-            this.spliceStartPt.set(closest);
+        if (!get(spliceStartPt)) {
+            spliceStartPt.set(closest);
         }
-        else if (!get(this.spliceEndPt)) {
-            this.spliceEndPt.set(closest);
+        else if (!get(spliceEndPt)) {
+            spliceEndPt.set(closest);
         } else {
-            this.spliceStartPt.set(closest);
-            this.spliceEndPt.set(null);
+            spliceStartPt.set(closest);
+            spliceEndPt.set(null);
         }
         
         this.renderSpliceMarkers();
@@ -123,28 +116,28 @@ export class MapEditor {
         this.spliceMarkers.forEach((m) => this.map.removeLayer(m));
         this.spliceMarkers = [];
 
-        if (get(this.spliceStartPt)) {
-            const m = L.marker([get(this.spliceStartPt)!.lat, get(this.spliceStartPt)!.lng])
+        if (get(spliceStartPt)) {
+            const m = L.marker([get(spliceStartPt)!.lat, get(spliceStartPt)!.lng])
                 .addTo(this.map)
-                .bindPopup(`Point A (ID: ${get(this.spliceStartPt)!.id})`)
+                .bindPopup(`Point A (ID: ${get(spliceStartPt)!.id})`)
                 .openPopup();
             this.spliceMarkers.push(m);
         }
-        if (get(this.spliceEndPt)) {
-            const m = L.marker([get(this.spliceEndPt)!.lat, get(this.spliceEndPt)!.lng])
+        if (get(spliceEndPt)) {
+            const m = L.marker([get(spliceEndPt)!.lat, get(spliceEndPt)!.lng])
                 .addTo(this.map)
-                .bindPopup(`Point B (ID: ${get(this.spliceEndPt)!.id})`)
+                .bindPopup(`Point B (ID: ${get(spliceEndPt)!.id})`)
                 .openPopup();
             this.spliceMarkers.push(m);
         }
     }
 
     toggleSpliceMode() {
-        this.isSpliceMode.update(v => !v);
-        if (!get(this.isSpliceMode)) {
+        isSpliceMode.update(v => !v);
+        if (!get(isSpliceMode)) {
             // Clean up
-            this.spliceStartPt.set(null);
-            this.spliceEndPt.set(null);
+            spliceStartPt.set(null);
+            spliceEndPt.set(null);
             this.renderSpliceMarkers();
         } else {
             //Give UI notification indicating it has started
@@ -155,11 +148,11 @@ export class MapEditor {
     }
 
     async executeSplice() {
-        if (!get(this.spliceStartPt) || !get(this.spliceEndPt)) return;
+        if (!get(spliceStartPt) || !get(spliceEndPt)) return;
 
         if (
             !confirm(
-                `Delete all points between Point A (${get(this.spliceStartPt)!.id}) and Point B (${get(this.spliceEndPt)!.id})?`,
+                `Delete all points between Point A (${get(spliceStartPt)!.id}) and Point B (${get(spliceEndPt)!.id})?`,
             )
         )
             return;
@@ -169,8 +162,8 @@ export class MapEditor {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    startId: get(this.spliceStartPt)!.id,
-                    endId: get(this.spliceEndPt)!.id,
+                    startId: get(spliceStartPt)!.id,
+                    endId: get(spliceEndPt)!.id,
                 }),
             });
             if (res.ok) {
@@ -211,11 +204,12 @@ export class MapEditor {
     }
     async loadLocations() {
         const res = await fetch(API_BASE + "/api/locations");
-        this.locations = await res.json();
+        locations.set(await res.json());
         this.renderLocations();
 
-        if (this.markers && this.markers.length > 0) {
-            const group: L.FeatureGroup = new L.featureGroup(this.markers);
+        const markersVal = get(markers);
+        if (markersVal && markersVal.length > 0) {
+            const group: L.FeatureGroup = new L.featureGroup(markersVal);
             this.map.fitBounds(group.getBounds());
         }
     }
@@ -223,12 +217,13 @@ export class MapEditor {
     async loadData() {
         try {
             const data = await loadMapBootstrapData();
-            this.locations = data.locations;
+            locations.set(data.locations);
             this.renderLocations();
             this.renderPaths(data.pathData);
 
-            if (this.markers && this.markers.length > 0) {
-                const group: L.FeatureGroup = new L.featureGroup(this.markers);
+            const markersVal = get(markers);
+            if (markersVal && markersVal.length > 0) {
+                const group: L.FeatureGroup = new L.featureGroup(markersVal);
                 this.map.fitBounds(group.getBounds());
             }
         } catch (e) {
@@ -237,10 +232,10 @@ export class MapEditor {
     }
 
     renderLocations() {
-        this.markers?.forEach((m) => this.map.removeLayer(m));
-        this.markers = [];
+        get(markers)?.forEach((m) => this.map.removeLayer(m));
+        markers.update(() => []);
 
-        this.locations.forEach((loc, index) => {
+        get(locations).forEach((loc, index) => {
             const marker = L.marker([loc.lat, loc.lng], {
                 draggable: true,
                 icon: this.defaultIcon,
@@ -248,8 +243,11 @@ export class MapEditor {
 
             marker.on("dragend", (e) => {
                 const pos = e.target.getLatLng();
-                this.locations[index].lat = pos.lat;
-                this.locations[index].lng = pos.lng;
+                locations.update((locs) => {
+                    locs[index].lat = pos.lat;
+                    locs[index].lng = pos.lng;
+                    return locs;
+                });
             });
 
             marker.bindPopup(`
@@ -261,7 +259,7 @@ export class MapEditor {
         </div>
       `);
 
-            this.markers?.push(marker);
+            markers.update((prev) => [...prev, marker]);
         });
     }
 
@@ -310,7 +308,7 @@ export class MapEditor {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(
-                    this.locations.map((l) => ({ name: l.name, lat: l.lat, lng: l.lng })),
+                    get(locations).map((l) => ({ name: l.name, lat: l.lat, lng: l.lng })),
                 ),
             });
             if (res.ok) alert("Successfully saved locations!");
