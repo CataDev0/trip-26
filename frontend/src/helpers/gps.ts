@@ -30,7 +30,8 @@ export class Gps {
         isTracking.set(true);
         gpsStatus.update(() => "Acquiring signal...");
         this.requestWakeLock();
-        this.flushOfflineQueue(); // Try to flush any old points when we start
+        // Try to flush any old points when we start
+        this.flushOfflineQueue(); 
 
         if (Capacitor.isNativePlatform()) {
             this.watchId = await this.BackgroundGeolocation.addWatcher(
@@ -99,7 +100,7 @@ export class Gps {
             });
         }
         isTracking.set(false);
-        currentSpeedKmH.set(0);
+        currentSpeedKmH.set(null);
         currentSpeedLimit.set(null);
         autoFollow.set(true);
         gpsStatus.set("GPS: Stopped");
@@ -165,14 +166,14 @@ export class Gps {
         gpsStatus.update(() => `Tracking (${accuracy.toFixed(1)}m accuracy)`);
         if (speed !== null && speed !== undefined) {
             const kmh = speed * 3.6;
-            currentSpeedKmH.set(kmh);
+            currentSpeedKmH.set(Math.round(kmh));
 
             if (kmh > 10 && Date.now() - this.lastSpeedLimitFetch > 15000) {
                 this.lastSpeedLimitFetch = Date.now();
                 this.fetchSpeedLimit(lat, lng);
             }
         } else {
-            currentSpeedKmH.set(0);
+            currentSpeedKmH.set(null);
         }
 
         if (accuracy > 20) return;
