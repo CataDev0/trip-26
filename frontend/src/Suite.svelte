@@ -16,15 +16,11 @@
     import { getSharedMap } from "./helpers/sharedMap";
     import SideBar from "./components/SideBar.svelte";
     import { canSaveLocations } from "./stores/editStore";
+    import { autoFollow, isTracking, gpsStatus, currentSpeedLimit, currentSpeedKmH } from "./stores/tripStore";
 
     let map: L.Map;
     let mapContainer: HTMLDivElement;
     let tracker: Gps;
-    $: isTracking = tracker?.isTracking;
-    $: currentSpeedKmH = tracker?.currentSpeedKmH;
-    $: currentSpeedLimit = tracker?.currentSpeedLimit;
-    $: autoFollow = tracker?.autoFollow;
-    $: gpsStatus = tracker?.gpsStatus;
 
     let findingAttractions: boolean = false;
     let sidebarExpanded: boolean = false;
