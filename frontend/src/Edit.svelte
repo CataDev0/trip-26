@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import "@geoman-io/leaflet-geoman-free";
   import TopBar from "./components/TopBar.svelte";
-  import { LeafletWindow, MapEditor } from "./helpers/edit";
+  import { type LeafletWindow, MapEditor } from "./helpers/edit";
   import { getAuthHeader } from "./helpers/auth";
   import { getSharedMap } from "./helpers/sharedMap";
   import { canSaveLocations } from "./stores/editStore";
