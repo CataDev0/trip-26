@@ -69,7 +69,7 @@
         <button
           class="btn"
           style="background-color: #dc3545; margin-right: 5px;"
-          on:click={() => editor.executeSplice()}
+          on:click={() => editor.executeSplice(editor.map.getBounds())}
         >
           Execute Splice
         </button>

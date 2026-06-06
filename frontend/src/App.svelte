@@ -9,7 +9,7 @@
   import { getSharedMap } from "./helpers/sharedMap";
   import { getMarker } from "./helpers/locationMarkers";
   import SideBar from "./components/SideBar.svelte";
-    import { canSaveLocations } from "./stores/editStore";
+  import { canSaveLocations } from "./stores/editStore";
 
   let map: L.Map;
   let mapContainer: HTMLDivElement;
