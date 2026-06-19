@@ -150,7 +150,7 @@ app.post("/api/visited", (req, res) => {
     res.json({ success: true });
 });
 
-// Save a GPS point(s) to the path
+// Save GPS point(s) to the path
 app.post("/api/path", (req, res) => {
     const points = Array.isArray(req.body) ? req.body : [req.body];
     if (points.length === 0)

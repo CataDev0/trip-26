@@ -193,7 +193,8 @@ export class Gps {
             if (get(autoFollow)) this.map.setView([lat, lng], 15);
         }
 
-        const lastPoint = get(gpsPath)[get(gpsPath).length - 1];
+        const gpsPathData = get(gpsPath);
+        const lastPoint = gpsPathData[gpsPathData.length - 1];
         let shouldSave = true;
         if (lastPoint) {
             const dist = this.map.distance([lat, lng], [lastPoint.lat, lastPoint.lng]);
@@ -211,12 +212,11 @@ export class Gps {
             }
 
             try {
-                const res = await authFetch(API_BASE + "/api/path", {
+                await authFetch(API_BASE + "/api/path", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ lat, lng }),
                 });
-                if (!res.ok) throw new Error("Failed");
             } catch (e) {
                 console.error("Failed to save to DB, queueing offline", e);
                 this.offlineQueue.push({ lat, lng });
