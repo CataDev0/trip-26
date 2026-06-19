@@ -5,7 +5,7 @@ const sqlite = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const Utils = require("./Utils.mjs");
+const { Utils } = require("./Utils.mjs");
 
 const app = express();
 app.use(cors());
