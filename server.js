@@ -241,11 +241,8 @@ app.get("/api/speed-limit", async (req, res) => {
         const data = await response.json();
 
         let speedLimit = null;
-        if (data.routes && data.routes.length > 0) {
-            const spans = data.routes[0].sections[0].spans;
-            if (spans && spans.length > 0 && spans[0].speedLimit) {
-                speedLimit = Math.round(spans[0].speedLimit * 3.6);
-            }
+        if (data.items && data.items.length > 0) {
+            speedLimit = data.items[0].navigationAttributes?.speedLimits[0]?.maxSpeed || null;
         }
 
         res.json({ speedLimit });

@@ -12,7 +12,8 @@ const routes = {
 };
 
 const path = window.location.pathname;
-const Component = path in routes ? routes[path as keyof typeof routes] : App; // Default to App if route not found
+// Default to App if route not found
+const Component = path in routes ? routes[path as keyof typeof routes] : App;
 
 const app = new Component({
     target: document.getElementById("app") || document.body,
