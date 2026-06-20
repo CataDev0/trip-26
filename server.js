@@ -4,8 +4,8 @@ const cors = require("cors");
 const sqlite = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
 const { Utils } = require("./Utils.mjs");
+const { initializeDatabase } = require("./Database.mjs");
 
 const app = express();
 app.use(cors());
@@ -62,35 +62,7 @@ app.get("/api/visitors", (req, res) => {
 const db = sqlite("trip.db");
 
 // Initialize database
-db.prepare(
-    `
-  CREATE TABLE IF NOT EXISTS visited_locations (
-    id INTEGER PRIMARY KEY
-  )
-`,
-).run();
-
-db.prepare(
-    `
-  CREATE TABLE IF NOT EXISTS gps_path (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lat REAL,
-    lng REAL,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`,
-).run();
-
-db.prepare(
-    `
-  CREATE TABLE IF NOT EXISTS locations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    lat REAL,
-    lng REAL
-  )
-`,
-).run();
+initializeDatabase(db);
 
 // Seed locations from JSON if database is empty
 const count = db.prepare("SELECT COUNT(*) as count FROM locations").get();
@@ -326,18 +298,5 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-    const nets = os.networkInterfaces();
-    const results = [];
-    for (const name of Object.keys(nets)) {
-        for (const net of nets[name]) {
-            // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
-            if (net.family === "IPv4" && !net.internal) {
-                results.push(net.address);
-            }
-        }
-    }
-    const localIp = results.length > 0 ? results[0] : "localhost";
-
-    console.log(`Server is running locally at http://localhost:${PORT}`);
-    console.log(`Access on LAN using http://${localIp}:${PORT}`);
+    console.log("Server is running");
 });
