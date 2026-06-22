@@ -1,6 +1,5 @@
-# Trip Tracker V1
-
-### Architecture
+# Trip Tracker V1 
+## Architecture
 
 **Backend** - Express, SQLite
 
@@ -8,11 +7,11 @@
 
 **Android App** - Capacitor
 
-### Description
+## Description
 
 Trip Tracker is a full stack application that tracks your roadtrip or hikes using your phone.
 
-### Features
+## Features
 
 - Website for sharing and viewing trips and editing locations and GPS traces
 - Mark locations as visited
@@ -21,25 +20,31 @@ Trip Tracker is a full stack application that tracks your roadtrip or hikes usin
 - Username & Password login required one time to start tracking and editing
     - Saved to device
 
-### Setup Guide
- 
-1.  ```
+## Setup Guide
+1. ### Clone Repo
+    
+   ```
     git clone https://github.com/CataDev0/trip-26.git && cd trip-26/
     ```
-1.  ```
+1. ### Create environment file
+    ```
     cp .env.example .env
     ```
-1.  #### Edit the environment file with your desired username and password for logging in.
+1.  ### Edit the environment file with your desired username and password
+    \* *For logging into the tracker*
+    ```
+    nano .env
+    ```
 
     **Optionally:** Add [HERE](https://docs.here.com/geocoding-and-search/docs/get-started-with-here-geocoding-and-search-api-v7) API key for speed limit functionality - Using the Geocoding and Search API
 
 
-1.  #### Install dependencies and run vite build:
+1.  ### Install dependencies and run vite build:
     ```
     npm i && npm run build
     ```
     
-    #### *Build the Android app*
+    ### *Build the Android app*
     1. 
         ``` 
         cd frontend && npx cap sync android
@@ -49,9 +54,9 @@ Trip Tracker is a full stack application that tracks your roadtrip or hikes usin
     1. Connect your phone with USB Debugging or WiFi Debugging enabled
     1. Run the app on your phone
 
-    The app should now be installed and signed by Android Studio
+    **The app should now be installed and signed by Android Studio**
 
-5. #### Run the backend server using node.js
+5. ### Run the backend server using node.js
     
     **Example using systemd unit:**
     
@@ -89,3 +94,6 @@ Trip Tracker is a full stack application that tracks your roadtrip or hikes usin
     Enable autostart and start the service
     ```
     sudo systemctl enable triptracker && sudo systemctl start triptracker
+    ```
+    
+    Reach the app at http://localhost:3000/
