@@ -1,8 +1,10 @@
 import { get } from "svelte/store";
-import L, { map } from "leaflet";
+import L from "leaflet";
 import { API_BASE } from "./Constants";
 import { isLiveTracking, liveTrackingLayer } from "../stores/appStore";
 
+// The purpose of the class is to manage the local client state when
+// following live tracking from the server
 export class LiveTracking {
 
     private liveCoords: L.LatLng[] = [];
@@ -14,7 +16,7 @@ export class LiveTracking {
         this.map = map;
         let group = get(liveTrackingLayer);
    
-        // We dont expect it to be null
+        // We dont expect group to be null
         if (!group.getLayers) {
             group = L.layerGroup();
             liveTrackingLayer.set(group);

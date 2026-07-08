@@ -12,6 +12,7 @@
     import { canSaveLocations } from "./stores/editStore";
     import { isLiveTracking } from "./stores/appStore";
     import { LiveTracking } from "./helpers/liveTracking";
+    import { get } from "svelte/store";
 
     let map: L.Map;
     let mapContainer: HTMLDivElement;
@@ -19,7 +20,7 @@
     let findingAttractions: boolean = false;
     let sidebarExpanded: boolean = false;
     let currentZoom: number = 13;
-    let trackingInterval: ReturnType<typeof setInterval>;
+    let trackingTimeout: ReturnType<typeof setTimeout>;
 
     onMount(async () => {
         const { map: sharedMap, container } = getSharedMap();
@@ -45,13 +46,17 @@
         const liveTracking = new LiveTracking();
         liveTracking.init(map);
 
-        // Run once immediately, then every minute
-        liveTracking.updateLiveTracking();
-        trackingInterval = setInterval(
-            () => liveTracking.updateLiveTracking(),
-            60_000,
-        );
+        function scheduleNextUpdate() {
+            const delay = get(isLiveTracking) ? 10_000 : 60_000;
+            trackingTimeout = setTimeout(async () => {
+                await liveTracking.updateLiveTracking();
+                scheduleNextUpdate();
+            }, delay);
+        }
 
+        // Run once immediately, then schedule based on current state
+        await liveTracking.updateLiveTracking();
+        scheduleNextUpdate();
     });
 
     async function findAttractions() {
@@ -80,7 +85,7 @@
     }
 
     onDestroy(() => {
-        clearInterval(trackingInterval);
+        clearTimeout(trackingTimeout);
     });
 </script>
 
