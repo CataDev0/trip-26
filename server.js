@@ -151,6 +151,8 @@ app.post("/api/path", (req, res) => {
         }
     });
 
+    Utils.resetLiveTrackTimer();
+
     insertMany(points);
     res.json({ success: true });
 });
@@ -288,6 +290,26 @@ app.delete("/api/path/splice", (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Could not splice path" });
+    }
+});
+
+// Send last GPS point for live tracking
+app.get("/api/live-tracking", (req, res) => {
+    if (!Utils.isLiveTracking) {
+        return res.status(404).json({ error: "Live Tracking is not available" });
+    }
+
+    try {
+        const lastPoint = db
+            .prepare("SELECT lat, lng FROM gps_path ORDER BY timestamp DESC LIMIT 1")
+            .get();
+        if (lastPoint) {
+            res.json({ lat: lastPoint.lat, lng: lastPoint.lng });
+        } else {
+            res.status(404).json({ error: "Live Tracking last point not available" });
+        }
+    } catch {
+        res.status(500).json({ error: "Could not fetch live tracking data" });
     }
 });
 

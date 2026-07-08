@@ -1,4 +1,7 @@
 export class Utils {
+    static liveTrackTimer = null; 
+    static isLiveTracking = false;
+
     static haversineMeters(lat1, lng1, lat2, lng2) {
         const earthRadius = 6371000;
         const toRadians = (degrees) => (degrees * Math.PI) / 180;
@@ -76,5 +79,19 @@ export class Utils {
         dy = dy * Math.cos(latRad);
 
         return dx * dx + dy * dy;
+    }
+
+    static resetLiveTrackTimer() {
+        if (!Utils.isLiveTracking) {
+            Utils.isLiveTracking = true;
+        }
+
+        if (Utils.liveTrackTimer) {
+            clearTimeout(Utils.liveTrackTimer);
+        }
+        Utils.liveTrackTimer = setTimeout(() => {
+            Utils.isLiveTracking = false;
+        // 5 minutes
+        }, 60_000 * 5); 
     }
 }
