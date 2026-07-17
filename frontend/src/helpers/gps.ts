@@ -6,6 +6,7 @@ import L from "leaflet";
 import { BackgroundGeolocationPlugin } from "@capacitor-community/background-geolocation";
 import { renderPath } from "./tripPath";
 import { autoFollow, currentSpeedKmH, currentSpeedLimit, gpsPath, gpsStatus, isTracking } from "../stores/tripStore";
+import { Device } from "@capacitor/device";
 
 export class Gps {
     private map: L.Map;
@@ -17,6 +18,8 @@ export class Gps {
         localStorage.getItem("gpsOfflineQueue") || "[]"
     );
     private BackgroundGeolocation: BackgroundGeolocationPlugin;
+    private geoLocation: Geolocation | null = null;
+    private isHuawei: boolean = false;
 
     constructor(map: L.Map) {
         this.map = map;
@@ -24,6 +27,11 @@ export class Gps {
         this.BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>(
             "BackgroundGeolocation",
         );
+
+        Device.getInfo().then(info => {
+            this.isHuawei = info.manufacturer.toLocaleLowerCase() === "huawei";
+            this.geoLocation = navigator.geolocation;
+        });
     }
 
     public async startTracking() {
@@ -33,31 +41,58 @@ export class Gps {
         // Try to flush any old points when we start
         this.flushOfflineQueue(); 
 
+        const acquireTimeout = setTimeout(() => {
+            gpsStatus.update(() => "Timed out waiting for GPS. Check location permissions & GPS is enabled.");
+            this.stopTracking();
+            // Timout after 30 seconds
+        }, 30_000); 
+
+
         if (Capacitor.isNativePlatform()) {
-            this.watchId = await this.BackgroundGeolocation.addWatcher(
-                {
-                    backgroundMessage: "Your position is being recorded for your trip.",
-                    backgroundTitle: "Trip Tracker Running",
-                    requestPermissions: true,
-                    stale: false,
-                    distanceFilter: 15,
-                },
-                async (position, error) => {
-                    if (error) {
-                        const msg = error.message || "Unknown error";
-                        gpsStatus.update(() => `GPS Error: ${msg}`);
-                        this.stopTracking();
-                        return;
-                    }
-                    if (!position) return;
+
+            if (this.isHuawei && this.geoLocation) {
+                this.watchId = await this.geoLocation.watchPosition((pos) => {
+                    clearTimeout(acquireTimeout);
                     this.onPositionUpdate(
-                        position.latitude,
-                        position.longitude,
-                        position.accuracy || 0,
-                        position.speed || null,
+                        pos.coords.latitude,
+                        pos.coords.longitude,
+                        pos.coords.accuracy || 0,
+                        pos.coords.speed || null,
                     );
-                },
-            );
+                }, (error) => {
+                    clearTimeout(acquireTimeout);
+                    const msg = error.message || "Unknown error";
+                    gpsStatus.update(() => `GPS Error: ${msg}`);
+                    this.stopTracking();
+                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 });
+            }
+            else {
+                this.watchId = await this.BackgroundGeolocation.addWatcher(
+                    {
+                        backgroundMessage: "Your position is being recorded for your trip.",
+                        backgroundTitle: "Trip Tracker Running",
+                        requestPermissions: true,
+                        stale: false,
+                        distanceFilter: 15,
+                    },
+                    async (position, error) => {
+                        clearTimeout(acquireTimeout);
+                        if (error) {
+                            const msg = error.message || "Unknown error";
+                            gpsStatus.update(() => `GPS Error: ${msg}`);
+                            this.stopTracking();
+                            return;
+                        }
+                        if (!position) return;
+                        this.onPositionUpdate(
+                            position.latitude,
+                            position.longitude,
+                            position.accuracy || 0,
+                            position.speed || null,
+                        );
+                    },
+                );
+            }
         } else {
             if (!navigator.geolocation) {
                 alert("Geolocation is not supported by your browser");
@@ -65,14 +100,16 @@ export class Gps {
             }
             this.watchId = navigator.geolocation.watchPosition(
                 async (position) => {
+                    clearTimeout(acquireTimeout);
                     this.onPositionUpdate(
                         position.coords.latitude,
                         position.coords.longitude,
-                        position.coords.accuracy,
-                        position.coords.speed,
+                        position.coords.accuracy || 0,
+                        position.coords.speed || null,
                     );
                 },
                 (error) => {
+                    clearTimeout(acquireTimeout);
                     let msg = error.message || "Unknown error";
                     if (error.code === 1) msg = "Permission denied.";
                     else if (error.code === 2) msg = "Position unavailable.";
