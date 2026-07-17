@@ -41,12 +41,13 @@ export function splitTripsByGap(
         let hasGap = false;
     
         if (currentTrip.length > 0) {
+            // Split trips if timestamps are longer than gapMinutes (30m)
             if (previousTimestamp !== null && Number.isFinite(nextTimestamp) && (nextTimestamp - previousTimestamp > gapMs)) {
                 hasGap = true;
             } else if (previousPoint !== null) {
-                // Break trips apart if the gap is larger than 50km
+                // Break trips apart if the distance is larger than (5km)
                 const dist = haversineMeters(previousPoint.lat, previousPoint.lng, point.lat, point.lng);
-                if (dist > 50000) {
+                if (dist > 5000) {
                     hasGap = true;
                 }
             }
@@ -93,12 +94,13 @@ export function renderTripPath(
         if (trip.length < 2) {
             return;
         }
+        const simplified = simplifyTrip(map, trip, 8);
 
-        for (let i = 0; i < trip.length - 1; i++) {
-            const fraction = i / (trip.length - 1);
+        for (let i = 0; i < simplified.length - 1; i++) {
+            const fraction = i / (simplified.length - 1);
             const hue = 280 - fraction * 160;
             segments.push(
-                L.polyline([[trip[i].lat, trip[i].lng], [trip[i + 1].lat, trip[i + 1].lng]], {
+                L.polyline([[simplified[i].lat, simplified[i].lng], [simplified[i + 1].lat, simplified[i + 1].lng]], {
                     color: `hsl(${hue}, 100%, 50%)`,
                     weight: 5,
                 }),
@@ -115,4 +117,21 @@ export function renderTripPath(
 
 export function renderPath(map: L.Map) {
     pathLayerGroup = renderTripPath(map, get(gpsPath), pathLayerGroup) ?? null;
+}
+
+// Simplify a trip's points using perpendicular distance threshold
+export function simplifyTrip(map: L.Map, points: { lat: number; lng: number }[], toleranceMeters = 8): typeof points {
+    if (points.length <= 2) return points;
+
+    const latlngs = points.map((p) => L.latLng(p.lat, p.lng));
+    const simplified = L.LineUtil.simplify(
+        latlngs.map((ll) => map.latLngToLayerPoint(ll)),
+        // This is in pixel-space, not meters
+        toleranceMeters / 10 
+    );
+    // Leaflet simplify works in pixel space only
+    return simplified.map((pt) => {
+        const ll = map.layerPointToLatLng(pt);
+        return { lat: ll.lat, lng: ll.lng };
+    });
 }
