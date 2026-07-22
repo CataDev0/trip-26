@@ -1,19 +1,9 @@
 import L from "leaflet";
 import { authFetch } from "./auth";
-import { API_BASE } from "./Constants";
+import { API_BASE, defaultIcon, visitedIcon } from "./Constants";
 import { LocationData } from "./mapData";
 import { get, writable } from "svelte/store";
 import { canSaveLocations } from "../stores/editStore";
-
-const defaultIcon = new L.Icon.Default();
-const visitedIcon = new L.Icon({
-    iconUrl: "/icons/marker-icon-2x-green.png",
-    shadowUrl: "/icons/marker-shadow.png",
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-    shadowSize: [41, 41]
-});
 
 const markers: Record<number, L.Marker> = {};
 

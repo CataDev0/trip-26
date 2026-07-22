@@ -5,8 +5,9 @@
   import { type LeafletWindow, MapEditor } from "./helpers/edit";
   import { getAuthHeader } from "./helpers/auth";
   import { getSharedMap } from "./helpers/sharedMap";
-  import { canSaveLocations } from "./stores/editStore";
+  import { canSaveLocations, locations } from "./stores/editStore";
   import { isSpliceMode, spliceEndPt, spliceStartPt } from "./stores/editStore";
+    import { get } from "svelte/store";
 
   let editor: MapEditor;
   let mapWrapper: HTMLDivElement;
@@ -38,16 +39,20 @@
       // Global hooks inside popup HTML snippets
       (window as LeafletWindow).editLocName = (id: number, newName: string) => editor.editLocName(id, newName);
       (window as LeafletWindow).deleteLoc = (id: number) => editor.deleteLoc(id);
-
+      (window as LeafletWindow).saveLocation = (id: number) => {
+          const loc = get(locations)[id];
+          editor.saveLocation(loc);
+      }
       const authHeader = getAuthHeader();
       if (!(await authHeader).Authorization) {
-      // No auth, show login modal
+          // No auth, show login modal
           window.dispatchEvent(new CustomEvent("require-login"));
       }
 
       return () => {
           delete (window as LeafletWindow).editLocName;
           delete (window as LeafletWindow).deleteLoc;
+          delete (window as LeafletWindow).saveLocation;
           if (map) {
               map.off("pm:create");
               map.off("pm:remove");
@@ -83,14 +88,6 @@
       on:click={() => editor?.toggleSpliceMode()}
     >
       {$isSpliceMode ? "Cancel Splice" : "Splice Mode"}
-    </button>
-
-    <button
-      class="btn"
-      style="background-color: #28a745;"
-      on:click={() => editor.saveLocations()}
-    >
-      Save Location Pins
     </button>
     <button
       class="btn"

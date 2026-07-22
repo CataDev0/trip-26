@@ -1,21 +1,23 @@
-import L, { FeatureGroup } from "leaflet";
-import { loadMapBootstrapData, LocationData, PathPoint } from "./mapData";
-import { API_BASE } from "./Constants";
+import L from "leaflet";
+import { loadMapBootstrapData, type LocationData, PathPoint } from "./mapData";
+import { API_BASE, visitedIcon } from "./Constants";
 import { splitTripsByGap } from "./tripPath";
 import { authFetch } from "./auth";
 import { get } from "svelte/store";
 import { isSpliceMode, locations, markers, spliceEndPt, spliceStartPt } from "../stores/editStore";
+import { visitedIds } from "./locationMarkers";
 
 export type LeafletWindow = Window & typeof globalThis & {
     editLocName?: (id: number, newName: string) => void;
     deleteLoc?: (id: number) => void;
+    saveLocation?: (id: number) => void;
 };
 
 export class MapEditor {
     public map: L.Map;
 
     private pathLines: L.Polyline[] = [];
-    public pathLayerGroup: FeatureGroup | undefined;
+    public pathLayerGroup: L.FeatureGroup | undefined;
     private drawnGeomanShapes: L.Layer[] = [];
 
     // Timeline Splicing Cut Variables
@@ -72,6 +74,7 @@ export class MapEditor {
             locs[id].name = newName;
             return locs;
         });
+        this.renderLocations();
     };
 
     deleteLoc(id: number) {
@@ -192,7 +195,7 @@ export class MapEditor {
         // Keep a reference to the actual IDs and sequences
         this.fullPathData = data;
 
-        const pts = data.map((d: any) => [d.lat, d.lng] as [number, number]);
+        const pts = data.map((d: { lat: number; lng: number; }) => [d.lat, d.lng] as [number, number]);
         if (pts.length > 0) {
             if (this.pathLines.length) {
                 this.pathLines.forEach((l) => this.map.removeLayer(l));
@@ -239,9 +242,10 @@ export class MapEditor {
         markers.update(() => []);
 
         get(locations).forEach((loc, index) => {
+            const isVisited = get(visitedIds).has(loc.id);
             const marker = L.marker([loc.lat, loc.lng], {
                 draggable: true,
-                icon: this.defaultIcon,
+                icon: isVisited ? visitedIcon : this.defaultIcon,
             }).addTo(this.map);
 
             marker.on("dragend", (e) => {
@@ -255,10 +259,15 @@ export class MapEditor {
 
             marker.bindPopup(`
         <div style="min-width:150px">
-          <strong>Edit Name:</strong><br>
-          <input type="text" value="${loc.name.replace(/"/g, "&quot;")}" onchange="window.editLocName(${index}, this.value)" style="width:100%;margin:5px 0" />
-          <br>
-          <button onclick="window.deleteLoc(${index})" style="background:red;color:white;border:none;padding:4px;cursor:pointer;width:100%">Delete Location</button>
+            <strong>Edit Name:</strong><br>
+            <input type="text" value="${loc.name.replace(/"/g, "&quot;")}" onchange="window.editLocName(${index}, this.value)" style="width:100%;margin:5px 0" />
+            <br>
+            <button onclick="window.deleteLoc(${index})" style="background:red;color:white;border:none;padding:4px;cursor:pointer;width:100%">
+                Delete Location
+            </button>  
+            <button onclick="window.saveLocation(${index})" style="background:green;color:white;border:none;padding:4px;cursor:pointer;width:100%">
+                Save Location
+            </button>  
         </div>
       `);
 
@@ -318,6 +327,32 @@ export class MapEditor {
             else alert("Failed to save locations.");
         } catch (e) {
             alert("Error saving locations.");
+            console.error(e);
+        }
+    }
+
+    async saveLocation(ld: LocationData) {
+        try {
+            const res = await authFetch(API_BASE + "/api/locations/single", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: ld.name, lat: ld.lat, lng: ld.lng }),
+            });
+
+            if (res.ok) {
+                console.log(await res.blob().then(b => b.text()));
+                const data = await res.json();
+                // Add to local state
+                const newLoc = { id: data.id, name: ld.name, lat: ld.lat, lng: ld.lng };
+                locations.update((locs) => [...locs, newLoc]);
+                this.renderLocations();
+                alert("New location saved!");
+            } else {
+                alert("Failed to save location.");
+            }
+            
+        } catch (e) {
+            alert("Error saving location.");
             console.error(e);
         }
     }

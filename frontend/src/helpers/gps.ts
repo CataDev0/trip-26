@@ -49,15 +49,15 @@ export class Gps {
 
 
         if (Capacitor.isNativePlatform()) {
-
-            if (this.isHuawei && this.geoLocation) {
-                this.watchId = await this.geoLocation.watchPosition((pos) => {
+            // TODO W/A for Android devides
+            if (this.geoLocation) {
+                this.watchId = this.geoLocation.watchPosition((pos) => {
                     clearTimeout(acquireTimeout);
                     this.onPositionUpdate(
                         pos.coords.latitude,
                         pos.coords.longitude,
                         pos.coords.accuracy || 0,
-                        pos.coords.speed || null,
+                        pos.coords.speed || null
                     );
                 }, (error) => {
                     clearTimeout(acquireTimeout);
@@ -125,7 +125,12 @@ export class Gps {
     public stopTracking() {
         if (this.watchId !== null) {
             if (Capacitor.isNativePlatform()) {
-                this.BackgroundGeolocation.removeWatcher({ id: String(this.watchId) });
+                // TODO Temporary workaround for All Android devices to use standard geolocator
+                if (this.geoLocation) {
+                    this.geoLocation.clearWatch(Number(this.watchId));
+                } else {
+                    this.BackgroundGeolocation.removeWatcher({ id: String(this.watchId) });
+                }
             } else {
                 navigator.geolocation.clearWatch(Number(this.watchId));
             }
