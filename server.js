@@ -260,16 +260,29 @@ app.post("/api/locations", (req, res) => {
 
 // Add a single location -
 // used for saving attractions
-app.post("/api/locations/single", (req, res) => {
+app.put("/api/locations/single", (req, res) => {
     try {
-        const { name, lat, lng } = req.body;
-        if (!name || lat === undefined || lng === undefined) {
+        const loc = req.body;
+        if (!loc.name || loc.lat === undefined || loc.lng === undefined) {
             return res.status(400).json({ error: "Missing name, lat, or lng" });
         }
-        const info = db
-            .prepare("INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)")
-            .run(name, lat, lng);
-        res.json({ success: true, id: info.lastInsertRowid });
+
+        const insert = db.prepare(
+            "INSERT INTO locations (id, name, lat, lng) VALUES (?, ?, ?, ?)",
+        );
+        let result;
+
+        // If it has an existing ID, keep it, else let sqlite generate one
+        if (loc.id !== undefined) {
+            result = insert.run(loc.id, loc.name, loc.lat, loc.lng);
+        } else {
+            result = db.prepare(
+                "INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)",
+            ).run(loc.name, loc.lat, loc.lng);
+        }
+
+        // Return the ID of the inserted location as a string to avoid parsing bigint
+        res.json({ success: true, id: String(result.lastInsertRowid) });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Could not save location" });

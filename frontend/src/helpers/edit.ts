@@ -340,7 +340,6 @@ export class MapEditor {
             });
 
             if (res.ok) {
-                console.log(await res.blob().then(b => b.text()));
                 const data = await res.json();
                 // Add to local state
                 const newLoc = { id: data.id, name: ld.name, lat: ld.lat, lng: ld.lng };
