@@ -261,11 +261,16 @@ export class MapEditor {
         <div style="min-width:150px">
             <strong>Edit Name:</strong><br>
             <input type="text" value="${loc.name.replace(/"/g, "&quot;")}" onchange="window.editLocName(${index}, this.value)" style="width:100%;margin:5px 0" />
-            <br>
-            <button onclick="window.deleteLoc(${index})" style="background:red;color:white;border:none;padding:4px;cursor:pointer;width:100%">
+            <button 
+                onclick="window.deleteLoc(${index})" 
+                class="btn"
+                style="background-color:red;color:white;border:none;padding:4px;cursor:pointer;width:100%;margin-top:0.25rem">
                 Delete Location
-            </button>  
-            <button onclick="window.saveLocation(${index})" style="background:green;color:white;border:none;padding:4px;cursor:pointer;width:100%">
+            </button>
+            <button
+                onclick="window.saveLocation(${index})"                 
+                class="btn"
+                style="background:green;color:white;border:none;padding:4px;cursor:pointer;width:100%;margin-top:0.25rem">
                 Save Location
             </button>  
         </div>

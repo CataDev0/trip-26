@@ -1,12 +1,10 @@
 import { get } from "svelte/store";
 import { API_BASE } from "./Constants";
 import { authFetch } from "./auth";
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 import L from "leaflet";
-import { BackgroundGeolocationPlugin } from "@capacitor-community/background-geolocation";
 import { renderPath } from "./tripPath";
 import { autoFollow, currentSpeedKmH, currentSpeedLimit, gpsPath, gpsStatus, isTracking } from "../stores/tripStore";
-import { Device } from "@capacitor/device";
 
 export class Gps {
     private map: L.Map;
@@ -17,21 +15,12 @@ export class Gps {
     private offlineQueue: { lat: number; lng: number }[] = JSON.parse(
         localStorage.getItem("gpsOfflineQueue") || "[]"
     );
-    private BackgroundGeolocation: BackgroundGeolocationPlugin;
-    private geoLocation: Geolocation | null = null;
-    private isHuawei: boolean = false;
+    private geoLocation: Geolocation;
+    private mapViewOptions: L.ZoomPanOptions = { animate: true, "easeLinearity": 0.25, "duration": 0.25 };
 
     constructor(map: L.Map) {
         this.map = map;
-
-        this.BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>(
-            "BackgroundGeolocation",
-        );
-
-        Device.getInfo().then(info => {
-            this.isHuawei = info.manufacturer.toLocaleLowerCase() === "huawei";
-            this.geoLocation = navigator.geolocation;
-        });
+        this.geoLocation = navigator.geolocation;
     }
 
     public async startTracking() {
@@ -49,50 +38,21 @@ export class Gps {
 
 
         if (Capacitor.isNativePlatform()) {
-            // TODO W/A for Android devides
-            if (this.geoLocation) {
-                this.watchId = this.geoLocation.watchPosition((pos) => {
-                    clearTimeout(acquireTimeout);
-                    this.onPositionUpdate(
-                        pos.coords.latitude,
-                        pos.coords.longitude,
-                        pos.coords.accuracy || 0,
-                        pos.coords.speed || null
-                    );
-                }, (error) => {
-                    clearTimeout(acquireTimeout);
-                    const msg = error.message || "Unknown error";
-                    gpsStatus.update(() => `GPS Error: ${msg}`);
-                    this.stopTracking();
-                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 });
-            }
-            else {
-                this.watchId = await this.BackgroundGeolocation.addWatcher(
-                    {
-                        backgroundMessage: "Your position is being recorded for your trip.",
-                        backgroundTitle: "Trip Tracker Running",
-                        requestPermissions: true,
-                        stale: false,
-                        distanceFilter: 15,
-                    },
-                    async (position, error) => {
-                        clearTimeout(acquireTimeout);
-                        if (error) {
-                            const msg = error.message || "Unknown error";
-                            gpsStatus.update(() => `GPS Error: ${msg}`);
-                            this.stopTracking();
-                            return;
-                        }
-                        if (!position) return;
-                        this.onPositionUpdate(
-                            position.latitude,
-                            position.longitude,
-                            position.accuracy || 0,
-                            position.speed || null,
-                        );
-                    },
+            this.watchId = this.geoLocation.watchPosition((pos) => {
+                clearTimeout(acquireTimeout);
+                this.onPositionUpdate(
+                    pos.coords.latitude,
+                    pos.coords.longitude,
+                    pos.coords.accuracy || 0,
+                    pos.coords.speed || null,
+                    pos.coords.heading || null
                 );
-            }
+            }, (error) => {
+                clearTimeout(acquireTimeout);
+                const msg = error.message || "Unknown error";
+                gpsStatus.update(() => `GPS Error: ${msg}`);
+                this.stopTracking();
+            }, { enableHighAccuracy: true, maximumAge: 0, timeout: 27000 });
         } else {
             if (!navigator.geolocation) {
                 alert("Geolocation is not supported by your browser");
@@ -106,6 +66,7 @@ export class Gps {
                         position.coords.longitude,
                         position.coords.accuracy || 0,
                         position.coords.speed || null,
+                        position.coords.heading || null
                     );
                 },
                 (error) => {
@@ -122,40 +83,38 @@ export class Gps {
             );
         }
     }
+
     public stopTracking() {
         if (this.watchId !== null) {
             if (Capacitor.isNativePlatform()) {
-                // TODO Temporary workaround for All Android devices to use standard geolocator
                 if (this.geoLocation) {
                     this.geoLocation.clearWatch(Number(this.watchId));
                 } else {
-                    this.BackgroundGeolocation.removeWatcher({ id: String(this.watchId) });
+                    navigator.geolocation.clearWatch(Number(this.watchId));
                 }
-            } else {
-                navigator.geolocation.clearWatch(Number(this.watchId));
+                this.watchId = null;
             }
-            this.watchId = null;
-        }
-        if (this.wakeLock !== null) {
-            this.wakeLock.release().then(() => {
-                this.wakeLock = null;
-            });
-        }
-        isTracking.set(false);
-        currentSpeedKmH.set(null);
-        currentSpeedLimit.set(null);
-        autoFollow.set(true);
-        gpsStatus.set("GPS: Stopped");
-        if (this.currentPositionMarker) {
-            this.map.removeLayer(this.currentPositionMarker);
-            this.currentPositionMarker = null;
+            if (this.wakeLock !== null) {
+                this.wakeLock.release().then(() => {
+                    this.wakeLock = null;
+                });
+            }
+            isTracking.set(false);
+            currentSpeedKmH.set(null);
+            currentSpeedLimit.set(null);
+            autoFollow.set(true);
+            gpsStatus.set("GPS: Stopped");
+            if (this.currentPositionMarker) {
+                this.map.removeLayer(this.currentPositionMarker);
+                this.currentPositionMarker = null;
+            }
         }
     }
 
     public centerOnCurrentPos() {
         if (this.currentPositionMarker) {
             autoFollow.set(true);
-            this.map.setView(this.currentPositionMarker.getLatLng(), 15);
+            this.map.setView(this.currentPositionMarker.getLatLng(), 15, this.mapViewOptions);
         } else {
             alert("No GPS position available yet.");
         }
@@ -201,10 +160,7 @@ export class Gps {
         }
     }
 
-    private async onPositionUpdate(lat: number,
-        lng: number,
-        accuracy: number,
-        speed: number | null | undefined) {
+    private async onPositionUpdate(lat: number, lng: number, accuracy: number, speed: number | null | undefined, bearing?: number | null) {
         gpsStatus.update(() => `Tracking (${accuracy.toFixed(1)}m accuracy)`);
         if (speed !== null && speed !== undefined) {
             const kmh = speed * 3.6;
@@ -220,6 +176,9 @@ export class Gps {
 
         if (accuracy > 20) return;
 
+        const gpsPathData = get(gpsPath);
+        const lastPoint = gpsPathData[gpsPathData.length - 1];
+
         if (!this.currentPositionMarker) {
             this.currentPositionMarker = L.circleMarker([lat, lng], {
                 radius: 8,
@@ -229,14 +188,12 @@ export class Gps {
                 opacity: 1,
                 fillOpacity: 0.8,
             }).addTo(this.map);
-            if (get(autoFollow)) this.map.setView([lat, lng], 15);
+            if (get(autoFollow)) this.map.setView([lat, lng], 15, this.mapViewOptions);
         } else {
             this.currentPositionMarker.setLatLng([lat, lng]);
-            if (get(autoFollow)) this.map.setView([lat, lng], 15);
+            if (get(autoFollow)) this.map.setView([lat, lng], 15, this.mapViewOptions);
         }
 
-        const gpsPathData = get(gpsPath);
-        const lastPoint = gpsPathData[gpsPathData.length - 1];
         let shouldSave = true;
         if (lastPoint) {
             const dist = this.map.distance([lat, lng], [lastPoint.lat, lastPoint.lng]);

@@ -14,8 +14,10 @@
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/preferences": "^8.0.1",
     "@geoman-io/leaflet-geoman-free": "^2.19.3",
+    "@types/leaflet-rotate": "^0.2.0",
     "cors": "^2.8.6",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "leaflet-rotate": "^0.2.8"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",

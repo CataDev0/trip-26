@@ -14,9 +14,10 @@
     import { MIN_ATTRACTIONS_ZOOM } from "./helpers/Constants";
     import { fetchAndRenderAttractions, saveAttraction } from "./helpers/attractions";
     import { getAuthHeader } from "./helpers/auth";
-    import { getSharedMap } from "./helpers/sharedMap";
+    import { getSharedMap, reRenderPathBasedOnZoom } from "./helpers/sharedMap";
     import { canSaveLocations } from "./stores/editStore";
     import { autoFollow, isTracking, gpsStatus, currentSpeedLimit, currentSpeedKmH } from "./stores/tripStore";
+    import { get } from "svelte/store";
 
     let map: L.Map;
     let mapContainer: HTMLDivElement;
@@ -36,12 +37,14 @@
         canSaveLocations.update(() => true); 
         
         currentZoom = map.getZoom() || 13;
+
         map.on("zoomend", () => {
+            reRenderPathBasedOnZoom(map);
             currentZoom = map.getZoom();
         });
 
         map.on("dragstart", () => {
-            if ($isTracking) {
+            if (get(autoFollow)) {
                 autoFollow.update(() => false);
             }
         });

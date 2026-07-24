@@ -14,3 +14,5 @@ export const visitedIcon = new L.Icon({
     popupAnchor: [1, -34],
     shadowSize: [41, 41]
 });
+
+export const CHUNKS_PER_TRIP = 4;

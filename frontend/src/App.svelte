@@ -6,7 +6,7 @@
     import { loadData, type LocationData } from "./helpers/mapData";
     import { MIN_ATTRACTIONS_ZOOM } from "./helpers/Constants";
     import { fetchAndRenderAttractions } from "./helpers/attractions";
-    import { getSharedMap } from "./helpers/sharedMap";
+    import { getSharedMap, reRenderPathBasedOnZoom } from "./helpers/sharedMap";
     import { getMarker } from "./helpers/locationMarkers";
     import SideBar from "./components/SideBar.svelte";
     import { canSaveLocations } from "./stores/editStore";
@@ -28,7 +28,9 @@
         map = sharedMap;
 
         currentZoom = map.getZoom() || 13;
+
         map.on("zoomend", () => {
+            reRenderPathBasedOnZoom(map);
             currentZoom = map.getZoom();
         });
 

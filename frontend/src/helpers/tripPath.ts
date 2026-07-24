@@ -2,7 +2,12 @@ import L from "leaflet";
 import type { PathPoint } from "./mapData";
 import { gpsPath } from "../stores/tripStore";
 import { get } from "svelte/store";
+import { CHUNKS_PER_TRIP } from "./Constants";
 
+type PointsWithPx = {
+    original: PathPoint;
+    px: L.Point;
+}[]
 export type LatLngTuple = [number, number];
 let pathLayerGroup: L.LayerGroup | null = null;
 
@@ -84,35 +89,45 @@ export function renderTripPath(
     }
 
     const trips = splitTripsByGap(pathData);
-    if (trips.length === 0) {
-        return null;
-    }
+    if (trips.length === 0) return null;
 
-    const segments: L.Polyline[] = [];
+    const chunkLayers: L.Polyline[] = [];
 
     trips.forEach((trip) => {
-        if (trip.length < 2) {
-            return;
-        }
-        const simplified = simplifyTrip(map, trip, 8);
+        if (trip.length < 2) return;
+        
+        const simplified = simplifyTripByZoom(map, trip, 3);
+        if (simplified.length < 2) return;
 
-        for (let i = 0; i < simplified.length - 1; i++) {
-            const fraction = i / (simplified.length - 1);
+        const numChunks = Math.min(CHUNKS_PER_TRIP, simplified.length - 1);
+        const chunkSize = Math.ceil(simplified.length / numChunks);
+
+        for (let c = 0; c < numChunks; c++) {
+            const start = c * chunkSize;
+
+            const end = Math.min(start + chunkSize + 1, simplified.length);
+            const chunkCoords = simplified.slice(start, end);
+
+            if (chunkCoords.length < 2) continue;
+
+            const fraction = numChunks > 1 ? c / (numChunks - 1) : 0;
             const hue = 280 - fraction * 160;
-            segments.push(
-                L.polyline([[simplified[i].lat, simplified[i].lng], [simplified[i + 1].lat, simplified[i + 1].lng]], {
+
+            const line = L.polyline(
+                chunkCoords.map((p) => [p.lat, p.lng] as [number, number]),
+                {
                     color: `hsl(${hue}, 100%, 50%)`,
                     weight: 5,
-                }),
+                    smoothFactor: 1, // let Leaflet handle further per-zoom simplification within each chunk
+                },
             );
+            chunkLayers.push(line);
         }
     });
 
-    if (segments.length === 0) {
-        return null;
-    }
+    if (chunkLayers.length === 0) return null;
 
-    return L.layerGroup(segments).addTo(map);
+    return L.layerGroup(chunkLayers).addTo(map);
 }
 
 export function renderPath(map: L.Map) {
@@ -134,4 +149,48 @@ export function simplifyTrip(map: L.Map, points: { lat: number; lng: number }[],
         const ll = map.layerPointToLatLng(pt);
         return { lat: ll.lat, lng: ll.lng };
     });
+}
+
+function simplifyTripByZoom(
+    map: L.Map,
+    trip: PathPoint[],
+    pixelTolerance = 3
+): PathPoint[] {
+    if (trip.length <= 2) return trip;
+
+    // Project to screen pixels at current zoom
+    const points = trip.map((p) => ({
+        original: p,
+        px: map.project([p.lat, p.lng], map.getZoom()),
+    }));
+
+    return dp(points, pixelTolerance).map((p) => p.original);
+}
+
+function perpendicularDistance(p: L.Point, a: L.Point, b: L.Point): number {
+    if (a.equals(b)) return p.distanceTo(a);
+    const num = Math.abs(
+        (b.y - a.y) * p.x - (b.x - a.x) * p.y + b.x * a.y - b.y * a.x
+    );
+    const den = Math.sqrt((b.y - a.y) ** 2 + (b.x - a.x) ** 2);
+    return num / den;
+}
+
+function dp(pts: PointsWithPx, tol: number): PointsWithPx {
+    if (pts.length <= 2) return pts;
+    let maxDist = 0;
+    let index = 0;
+    for (let i = 1; i < pts.length - 1; i++) {
+        const d = perpendicularDistance(pts[i].px, pts[0].px, pts[pts.length - 1].px);
+        if (d > maxDist) {
+            maxDist = d;
+            index = i;
+        }
+    }
+    if (maxDist > tol) {
+        const left = dp(pts.slice(0, index + 1), tol);
+        const right = dp(pts.slice(index), tol);
+        return [...left.slice(0, -1), ...right];
+    }
+    return [pts[0], pts[pts.length - 1]];
 }

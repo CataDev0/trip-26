@@ -7,7 +7,7 @@
   import { getSharedMap } from "./helpers/sharedMap";
   import { canSaveLocations, locations } from "./stores/editStore";
   import { isSpliceMode, spliceEndPt, spliceStartPt } from "./stores/editStore";
-    import { get } from "svelte/store";
+  import { get } from "svelte/store";
 
   let editor: MapEditor;
   let mapWrapper: HTMLDivElement;

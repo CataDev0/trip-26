@@ -6,3 +6,5 @@ export const isLiveTracking = writable<boolean>(false);
 export const liveTrackingLayer = writable<L.LayerGroup>(L.layerGroup());
 // Holds the raw route coordinates for progress calculations
 export const routeCoords = writable<L.LatLng[]>([]);
+
+export const lastSimplifiedZoomBucket = writable<number>(-1);
