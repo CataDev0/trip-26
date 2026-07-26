@@ -4,11 +4,15 @@ import { API_BASE, defaultIcon, visitedIcon } from "./Constants";
 import { LocationData } from "./mapData";
 import { get, writable } from "svelte/store";
 import { canSaveLocations } from "../stores/editStore";
+import { getLayerControl } from "./sharedMap";
 
 const markers: Record<number, L.Marker> = {};
 
 export const locations = writable<LocationData[]>([]);
 export const visitedIds = writable<Set<number>>(new Set());
+
+let locationsLayerGroup: L.LayerGroup | null = null;
+let locationsOverlayRegistered = false;
 
 export async function markVisited(id: number) {
     try {
@@ -68,14 +72,41 @@ export function createPopupContent(loc: LocationData, isVisited: boolean): strin
 }
 
 export function renderLocations(map: L.Map) {
+    if (locationsLayerGroup && !map.hasLayer(locationsLayerGroup)) {
+        return;
+    }
+
+    if (!locationsLayerGroup) {
+        locationsLayerGroup = L.layerGroup();
+    } else {
+        locationsLayerGroup.clearLayers();
+    }
+
     get(locations).forEach((loc) => {
         const isVisited = get(visitedIds).has(loc.id);
         const marker = L.marker([loc.lat, loc.lng], {
             icon: isVisited ? visitedIcon : defaultIcon,
-        })
-            .addTo(map)
-            .bindPopup(createPopupContent(loc, isVisited));
-
+        }).bindPopup(createPopupContent(loc, isVisited));
+        
+        marker.addTo(locationsLayerGroup!);
         setMarker(loc.id, marker);
     });
+
+    if (!locationsLayerGroup.getLayers().length) return;
+
+    if (!map.hasLayer(locationsLayerGroup)) {
+        locationsLayerGroup.addTo(map);
+    }
+
+    const control = getLayerControl();
+    if (!locationsOverlayRegistered) {
+        control.addOverlay(locationsLayerGroup, "Saved Locations");
+        locationsOverlayRegistered = true;
+
+        map.on("overlayadd", (e: L.LayersControlEvent) => {
+            if (e.layer === locationsLayerGroup) {
+                renderLocations(map);
+            }
+        });
+    }
 }

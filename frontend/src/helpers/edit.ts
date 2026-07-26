@@ -26,6 +26,9 @@ export class MapEditor {
 
     private defaultIcon = new L.Icon.Default();
 
+    // Edit traces
+    private selectedLine: L.Polyline | null = null;
+
     constructor(map: L.Map) {
         this.map = map;
 
@@ -40,6 +43,10 @@ export class MapEditor {
             }).then(() => {
                 this.loadData();
             });
+
+        this.map.eachLayer((layer) => { 
+            layer.options.pmIgnore = true;
+        });
 
         this.map.on("pm:create", (e) => {
             if (e.shape === "Marker") {
@@ -286,18 +293,56 @@ export class MapEditor {
 
         const trips = splitTripsByGap(pathData);
         trips.forEach((trip) => {
-            // 5 meter tolerance removes redundant jitter vertices
             const simplified = this.simplifyTrip(trip, 5);
             if (simplified.length < 2) return;
             const latlngs = simplified.map((p) => [p.lat, p.lng] as L.LatLngTuple);
             const polyline = L.polyline(latlngs, {
                 color: "blue",
                 weight: 5,
-                pmIgnore: false,
+                pmIgnore: true,
             });
+
+            polyline.on("click", () => {
+                // Deselect whatever was previously active
+                if (this.selectedLine && this.selectedLine !== polyline) {
+                    (this.selectedLine as any).pm.disable();
+                    this.selectedLine.options.pmIgnore = true;
+                    L.PM.reInitLayer(this.selectedLine);
+                }
+
+                this.map.fitBounds(polyline.getBounds());
+
+                // Opt this specific layer in
+                polyline.options.pmIgnore = false;
+                L.PM.reInitLayer(polyline);
+                polyline.pm.enable({ hideMiddleMarkers: true, snappable: true });
+                polyline.setStyle({ color: "yellow", weight: 8, dashArray: "4 6" });
+
+                this.selectedLine = polyline;
+
+                this.map.pm.addControls({
+                    cutPolygon: true,
+                    dragMode: true,
+                    drawCircle: false,
+                    drawCircleMarker: false,
+                    drawMarker: true,
+                    drawPolygon: true,
+                    drawPolyline: false,
+                    drawRectangle: true,
+                    editControls: true,
+                    editMode: true,
+                    position: "topleft",
+                    removalMode: true,
+                    rotateMode: false,
+                });
+            });
+
             // Attach the original timestamps to the layer so we can potentially save them back
             (polyline as any)._originalPoints = simplified;
-            if (this.pathLayerGroup) polyline.addTo(this.pathLayerGroup);
+            if (this.pathLayerGroup) {
+                polyline.addTo(this.pathLayerGroup);
+                this.pathLayerGroup.options.pmIgnore = false;
+            }
         });
     }
 

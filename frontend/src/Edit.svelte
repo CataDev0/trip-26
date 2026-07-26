@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import "@geoman-io/leaflet-geoman-free";
   import TopBar from "./components/TopBar.svelte";
   import { type LeafletWindow, MapEditor } from "./helpers/edit";
   import { getAuthHeader } from "./helpers/auth";
@@ -8,7 +7,7 @@
   import { canSaveLocations, locations } from "./stores/editStore";
   import { isSpliceMode, spliceEndPt, spliceStartPt } from "./stores/editStore";
   import { get } from "svelte/store";
-
+  
   let editor: MapEditor;
   let mapWrapper: HTMLDivElement;
 
@@ -17,22 +16,6 @@
       editor = new MapEditor(map);
       mapWrapper.appendChild(container);
 
-      editor.map.pm.addControls({
-          cutPolygon: true,
-          dragMode: true,
-          drawCircle: false,
-          drawCircleMarker: false,
-          drawMarker: true,
-          drawPolygon: true,
-          drawPolyline: false,
-          drawRectangle: true,
-          editControls: true,
-          editMode: true,
-          position: "topleft",
-          removalMode: true,
-          rotateMode: false,
-      });
-      
       // Enable save buttons in edit view
       canSaveLocations.update(() => true); 
 

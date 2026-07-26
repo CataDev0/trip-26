@@ -140,7 +140,7 @@
             href="/edit"
             class="btn"
             style="text-decoration:none; background-color:#ffc107; color:black;"
-            >Edit Location Pins</a
+            >Edit Mode</a
         >
         <a
             href="/"

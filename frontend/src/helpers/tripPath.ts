@@ -3,6 +3,7 @@ import type { PathPoint } from "./mapData";
 import { gpsPath } from "../stores/tripStore";
 import { get } from "svelte/store";
 import { CHUNKS_PER_TRIP } from "./Constants";
+import { getLayerControl } from "./sharedMap";
 
 type PointsWithPx = {
     original: PathPoint;
@@ -10,6 +11,7 @@ type PointsWithPx = {
 }[]
 export type LatLngTuple = [number, number];
 let pathLayerGroup: L.LayerGroup | null = null;
+const layerControl: L.Control.Layers | null = null;
 
 // Convert array of PathPoint to array of LatLngTuple for Leaflet
 export function toLatLngPath(pathData: PathPoint[]): LatLngTuple[] {
@@ -84,18 +86,11 @@ export function renderTripPath(
     pathData: PathPoint[],
     existingLayerGroup: L.LayerGroup | null,
 ): L.LayerGroup | null {
-    if (existingLayerGroup) {
-        map.removeLayer(existingLayerGroup);
-    }
-
     const trips = splitTripsByGap(pathData);
-    if (trips.length === 0) return null;
-
     const chunkLayers: L.Polyline[] = [];
 
     trips.forEach((trip) => {
         if (trip.length < 2) return;
-        
         const simplified = simplifyTripByZoom(map, trip, 3);
         if (simplified.length < 2) return;
 
@@ -104,34 +99,58 @@ export function renderTripPath(
 
         for (let c = 0; c < numChunks; c++) {
             const start = c * chunkSize;
-
             const end = Math.min(start + chunkSize + 1, simplified.length);
             const chunkCoords = simplified.slice(start, end);
-
             if (chunkCoords.length < 2) continue;
 
             const fraction = numChunks > 1 ? c / (numChunks - 1) : 0;
             const hue = 280 - fraction * 160;
 
-            const line = L.polyline(
-                chunkCoords.map((p) => [p.lat, p.lng] as [number, number]),
-                {
-                    color: `hsl(${hue}, 100%, 50%)`,
-                    weight: 5,
-                    smoothFactor: 1, // let Leaflet handle further per-zoom simplification within each chunk
-                },
+            chunkLayers.push(
+                L.polyline(
+                    chunkCoords.map((p) => [p.lat, p.lng] as [number, number]),
+                    { color: `hsl(${hue}, 100%, 50%)`, weight: 5, smoothFactor: 1 },
+                ),
             );
-            chunkLayers.push(line);
         }
     });
 
-    if (chunkLayers.length === 0) return null;
+    if (chunkLayers.length === 0) {
+        if (existingLayerGroup) map.removeLayer(existingLayerGroup);
+        return existingLayerGroup ? null : null;
+    }
 
-    return L.layerGroup(chunkLayers).addTo(map);
+    if (existingLayerGroup) {
+        // Reuse the SAME object so anything referencing it (like the layer control) stays valid
+        existingLayerGroup.clearLayers();
+        chunkLayers.forEach((line) => existingLayerGroup.addLayer(line));
+        return existingLayerGroup; // deliberately NOT calling .addTo(map) — preserves current show/hide state
+    }
+
+    // First-ever render: create the group, but don't add to map here —
+    // let the caller decide (so it can wire up the layer control first)
+    return L.layerGroup(chunkLayers);
 }
 
 export function renderPath(map: L.Map) {
-    pathLayerGroup = renderTripPath(map, get(gpsPath), pathLayerGroup) ?? null;
+    if (pathLayerGroup && !map.hasLayer(pathLayerGroup)) {
+        return;
+    }
+
+    const isFirstRender = !pathLayerGroup;
+    pathLayerGroup = renderTripPath(map, get(gpsPath), pathLayerGroup);
+
+    if (isFirstRender && pathLayerGroup) {
+        pathLayerGroup.addTo(map);
+        const control = getLayerControl();
+        control.addOverlay(pathLayerGroup, "GPS Trip Traces");
+
+        map.on("overlayadd", (e: L.LayersControlEvent) => {
+            if (e.layer === pathLayerGroup) {
+                renderPath(map);
+            }
+        });
+    }
 }
 
 // Simplify a trip's points using perpendicular distance threshold
