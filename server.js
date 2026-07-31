@@ -161,7 +161,7 @@ app.post("/api/path", (req, res) => {
 app.get("/api/path", (req, res) => {
     const pathData = db
         .prepare(
-            "SELECT id, lat, lng, timestamp FROM gps_path ORDER BY timestamp ASC",
+            "SELECT * FROM gps_path ORDER BY timestamp ASC",
         )
         .all();
     res.json(pathData);

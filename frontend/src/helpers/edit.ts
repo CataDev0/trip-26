@@ -6,6 +6,7 @@ import { authFetch } from "./auth";
 import { get } from "svelte/store";
 import { isSpliceMode, locations, markers, spliceEndPt, spliceStartPt } from "../stores/editStore";
 import { visitedIds } from "./locationMarkers";
+import { gpsPath } from "../stores/tripStore";
 
 export type LeafletWindow = Window & typeof globalThis & {
     editLocName?: (id: number, newName: string) => void;
@@ -306,6 +307,7 @@ export class MapEditor {
                 // Deselect whatever was previously active
                 if (this.selectedLine && this.selectedLine !== polyline) {
                     (this.selectedLine as any).pm.disable();
+                    this.selectedLine.setStyle({ color: "blue", weight: 5, dashArray: undefined });
                     this.selectedLine.options.pmIgnore = true;
                     L.PM.reInitLayer(this.selectedLine);
                 }
@@ -353,7 +355,7 @@ export class MapEditor {
 
         for (let i = 1; i < trip.length - 1; i++) {
             const pt = trip[i];
-            // Basic distance drop: if current point is within <toleranceMeters> of the last retained point, skip it
+
             const dist = this.map.distance([last.lat, last.lng], [pt.lat, pt.lng]);
             if (dist > toleranceMeters) {
                 res.push(pt);
@@ -409,34 +411,58 @@ export class MapEditor {
     async saveTraces() {
         if (!this.pathLayerGroup) return;
 
+        const originalPoints = get(gpsPath); 
+        const MATCH_THRESHOLD_METERS = 10;
+        const usedTimestamps = new Set<string>();
         const newPathData: PathPoint[] = [];
-        let baseTime = new Date("2020-01-01T00:00:00Z").getTime();
 
         this.pathLayerGroup.eachLayer((layer: L.Layer) => {
-            if (layer instanceof L.Polyline) {
-                const latlngs = layer.getLatLngs();
-                const flatten = (arr: L.LatLng[] | L.LatLng[][] | L.LatLng[][][]): L.LatLng[] => {
-                    if (!arr || arr.length === 0) return [];
-                    if (Array.isArray(arr[0])) {
-                        return arr.flatMap(flatten as any);
-                    }
-                    return arr as L.LatLng[];
-                };
+            if (!(layer instanceof L.Polyline)) return;
 
-                const flatLatLngs = flatten(latlngs);
+            const flatten = (arr: any[]): L.LatLng[] =>
+                !arr?.length ? [] : Array.isArray(arr[0]) ? arr.flatMap(flatten) : arr;
 
-                flatLatLngs.forEach((ll, index) => {
-                    newPathData.push({
-                        lat: ll.lat,
-                        lng: ll.lng,
-                        timestamp: new Date(baseTime + index * 1000).toISOString(),
-                    });
-                });
+            const flatLatLngs = flatten(layer.getLatLngs());
 
-                // Jump 1 hour so the next polyline counts as a separate trip
-                baseTime += flatLatLngs.length * 1000 + 3600000;
-            }
+            flatLatLngs.forEach((ll: L.LatLng) => {
+                const { best, bestDist } = this.findClosest(ll.lat, ll.lng, originalPoints, this.map);
+
+                if (best?.timestamp && bestDist < MATCH_THRESHOLD_METERS) {
+                    if (usedTimestamps.has(best.timestamp)) return; 
+                    usedTimestamps.add(best.timestamp);
+                    newPathData.push({ lat: ll.lat, lng: ll.lng, timestamp: best.timestamp });
+                } else {
+                    newPathData.push({ lat: ll.lat, lng: ll.lng });
+                }
+            });
         });
+
+        // Interpolate timestamps points using neighbors
+        for (let i = 0; i < newPathData.length; i++) {
+            if (newPathData[i].timestamp) continue;
+
+            let prevIdx = i - 1;
+            while (prevIdx >= 0 && !newPathData[prevIdx].timestamp) prevIdx--;
+            let nextIdx = i + 1;
+            while (nextIdx < newPathData.length && !newPathData[nextIdx].timestamp) nextIdx++;
+
+            const prev = newPathData[prevIdx];
+            const next = newPathData[nextIdx];
+
+            if (prev.timestamp && next.timestamp) {
+                const span = nextIdx - prevIdx;
+                const frac = (i - prevIdx) / span;
+                const prevTime = new Date(prev.timestamp).getTime();
+                const nextTime = new Date(next.timestamp).getTime();
+                newPathData[i].timestamp = new Date(prevTime + (nextTime - prevTime) * frac).toISOString();
+            } else if (prev.timestamp) {
+                newPathData[i].timestamp = new Date(new Date(prev.timestamp).getTime() + 1000).toISOString();
+            } else if (next.timestamp) {
+                newPathData[i].timestamp = new Date(new Date(next.timestamp).getTime() - 1000).toISOString();
+            } else {
+                newPathData[i].timestamp = new Date().toISOString();
+            }
+        }
 
         try {
             const res = await authFetch(API_BASE + "/api/path", {
@@ -444,11 +470,29 @@ export class MapEditor {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newPathData),
             });
-            if (res.ok) alert("Successfully saved traces!");
-            else alert("Failed to save traces.");
+
+            if (res.ok) {
+                alert("Successfully saved traces!");
+                gpsPath.set(newPathData); // keep local store consistent with what's now saved
+            } else {
+                alert("Failed to save traces.");
+            }
         } catch (e) {
             alert("Error saving traces.");
             console.error(e);
         }
+    }
+
+    private findClosest(lat: number, lng: number, candidates: PathPoint[], map: L.Map) {
+        let best: PathPoint | null = null;
+        let bestDist = Infinity;
+        for (const c of candidates) {
+            const d = map.distance([lat, lng], [c.lat, c.lng]);
+            if (d < bestDist) {
+                bestDist = d;
+                best = c;
+            }
+        }
+        return { best, bestDist };
     }
 }

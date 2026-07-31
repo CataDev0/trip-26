@@ -11,7 +11,6 @@ type PointsWithPx = {
 }[]
 export type LatLngTuple = [number, number];
 let pathLayerGroup: L.LayerGroup | null = null;
-const layerControl: L.Control.Layers | null = null;
 
 // Convert array of PathPoint to array of LatLngTuple for Leaflet
 export function toLatLngPath(pathData: PathPoint[]): LatLngTuple[] {

@@ -1,5 +1,5 @@
 export class Utils {
-    static liveTrackTimer = null; 
+    static liveTrackTimer = null;
     static isLiveTracking = false;
 
     static haversineMeters(lat1, lng1, lat2, lng2) {
@@ -91,7 +91,61 @@ export class Utils {
         }
         Utils.liveTrackTimer = setTimeout(() => {
             Utils.isLiveTracking = false;
-        // 5 minutes
-        }, 60_000 * 5); 
+            // 5 minutes
+        }, 60_000 * 5);
+    }
+
+
+    /**
+     * 
+     * @param {PathPoint[]} pathData 
+     * @param {number} gapMinutes 
+     * @returns {PathPoint[][]}
+     */
+    static SplitTripsByGap(
+        pathData,
+        gapMinutes,
+    ) {
+        const trips = [];
+        let currentTrip = [];
+        const gapMs = gapMinutes * 60 * 1000;
+        let previousTimestamp = null;
+        let previousPoint = null;
+
+        for (const point of pathData) {
+            const nextTimestamp = point.timestamp ? Date.parse(point.timestamp) : Number.NaN;
+            let hasGap = false;
+
+            if (currentTrip.length > 0) {
+                // Split trips if timestamps are longer than gapMinutes (30m)
+                if (previousTimestamp !== null && Number.isFinite(nextTimestamp) && (nextTimestamp - previousTimestamp > gapMs)) {
+                    hasGap = true;
+                } else if (previousPoint !== null) {
+                    // Break trips apart if the distance is larger than (5km)
+                    const dist = haversineMeters(previousPoint.lat, previousPoint.lng, point.lat, point.lng);
+                    if (dist > 5000) {
+                        hasGap = true;
+                    }
+                }
+            }
+
+            if (hasGap) {
+                trips.push(currentTrip);
+                currentTrip = [];
+            }
+
+            currentTrip.push(point);
+
+            if (Number.isFinite(nextTimestamp)) {
+                previousTimestamp = nextTimestamp;
+            }
+            previousPoint = point;
+        }
+
+        if (currentTrip.length > 0) {
+            trips.push(currentTrip);
+        }
+
+        return trips;
     }
 }
