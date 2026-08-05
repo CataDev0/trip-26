@@ -124,37 +124,61 @@ app.post("/api/visited", (req, res) => {
 
 // Save GPS point(s) to the path
 app.post("/api/path", (req, res) => {
-    const points = Array.isArray(req.body) ? req.body : [req.body];
-    if (points.length === 0)
-        return res.status(400).json({ error: "No points provided" });
-
-    const insert = db.prepare("INSERT INTO gps_path (lat, lng) VALUES (?, ?)");
-    const lastRow = db
-        .prepare("SELECT lat, lng FROM gps_path ORDER BY id DESC LIMIT 1")
-        .get();
-    let lastLat = lastRow ? lastRow.lat : null;
-    let lastLng = lastRow ? lastRow.lng : null;
-    const insertMany = db.transaction((pts) => {
-        for (const pt of pts) {
-            if (pt.lat !== undefined && pt.lng !== undefined) {
-                if (lastLat !== null && lastLng !== null) {
-                    const distance = Utils.haversineMeters(lastLat, lastLng, pt.lat, pt.lng);
-                    if (distance < 5) {
-                        continue;
-                    }
-                }
-
-                insert.run(pt.lat, pt.lng);
-                lastLat = pt.lat;
-                lastLng = pt.lng;
-            }
+    try {
+        const points = Array.isArray(req.body) ? req.body : [req.body];
+        if (points.length === 0) {
+            return res.status(400).json({ error: "No points provided" });
         }
-    });
 
-    Utils.resetLiveTrackTimer();
+        const invalid = points.some(
+            (p) => p.lat === undefined || p.lng === undefined || !p.tripId || !p.timestamp
+        );
+        if (invalid) {
+            return res.status(400).json({ error: "Each point requires lat, lng, tripId, and timestamp" });
+        }
 
-    insertMany(points);
-    res.json({ success: true });
+        const insert = db.prepare(
+            "INSERT INTO gps_path (lat, lng, trip_id, current_speed, timestamp) VALUES (?, ?, ?, ?, ?)"
+        );
+        const insertOrIgnoreTrip = db.prepare(
+            "INSERT OR IGNORE INTO trips (id, started_at) VALUES (?, ?)"
+        );
+        const updateEndedAt = db.prepare(
+            "UPDATE trips SET ended_at = ? WHERE id = ? AND (ended_at IS NULL OR ended_at < ?)"
+        );
+
+        const runBatch = db.transaction((pts) => {
+            const distinctTripIds = [...new Set(pts.map((p) => p.tripId))];
+            distinctTripIds.forEach((tripId) => {
+                const firstPoint = pts.find((p) => p.tripId === tripId);
+                insertOrIgnoreTrip.run(tripId, firstPoint.timestamp);
+            });
+
+            const lastPointByTrip = new Map();
+            for (const pt of pts) {
+                const last = lastPointByTrip.get(pt.tripId);
+                if (last) {
+                    const distance = Utils.haversineMeters(last.lat, last.lng, pt.lat, pt.lng);
+                    if (distance < 3) continue;
+                }
+                insert.run(pt.lat, pt.lng, pt.tripId, pt.speed ?? null, pt.timestamp);
+                lastPointByTrip.set(pt.tripId, { lat: pt.lat, lng: pt.lng });
+            }
+
+            distinctTripIds.forEach((tripId) => {
+                const tripPoints = pts.filter((p) => p.tripId === tripId);
+                const latestTimestamp = tripPoints.reduce((max, p) => (p.timestamp > max ? p.timestamp : max), tripPoints[0].timestamp);
+                updateEndedAt.run(latestTimestamp, tripId, latestTimestamp);
+            });
+        });
+
+        runBatch(points);
+        Utils.resetLiveTrackTimer();
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not save points" });
+    }
 });
 
 // Get the full GPS path

@@ -14,6 +14,7 @@ export interface LocationData {
 
 export interface PathPoint {
     id?: number;
+    trip_id?: number;
     lat: number;
     lng: number;
     timestamp?: string;

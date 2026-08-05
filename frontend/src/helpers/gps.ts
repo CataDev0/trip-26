@@ -17,6 +17,7 @@ export class Gps {
     );
     private geoLocation: Geolocation;
     private mapViewOptions: L.ZoomPanOptions = { animate: true, "easeLinearity": 0.25, "duration": 0.25 };
+    private currentTripId: number | null = null;
 
     constructor(map: L.Map) {
         this.map = map;
@@ -24,17 +25,21 @@ export class Gps {
     }
 
     public async startTracking() {
+        // Client generated
+        // No need to be online to start tracking
+        this.currentTripId = Date.now(); 
+
         isTracking.set(true);
         gpsStatus.update(() => "Acquiring signal...");
         this.requestWakeLock();
-        // Try to flush any old points when we start
-        this.flushOfflineQueue(); 
+        // Try to flush any old points at the start
+        this.flushOfflineQueue();
 
         const acquireTimeout = setTimeout(() => {
             gpsStatus.update(() => "Timed out waiting for GPS. Check location permissions & GPS is enabled.");
             this.stopTracking();
             // Timout after 30 seconds
-        }, 30_000); 
+        }, 30_000);
 
 
         if (Capacitor.isNativePlatform()) {
@@ -141,8 +146,12 @@ export class Gps {
         if ("wakeLock" in navigator) {
             try {
                 this.wakeLock = await (navigator as Navigator).wakeLock.request("screen");
-            } catch (err: any) {
-                console.error(`${err.name}, ${err.message}`);
+            } catch (err) {
+                if (err instanceof Error) {
+                    console.error(`${err.name}: ${err.message}`);
+                } else {
+                    console.error("Unknown error:", err);
+                }
             }
         }
     }
@@ -162,8 +171,9 @@ export class Gps {
 
     private async onPositionUpdate(lat: number, lng: number, accuracy: number, speed: number | null | undefined, bearing?: number | null) {
         gpsStatus.update(() => `Tracking (${accuracy.toFixed(1)}m accuracy)`);
+        let kmh: number | null = null;
         if (speed !== null && speed !== undefined) {
-            const kmh = speed * 3.6;
+            kmh = speed * 3.6;
             currentSpeedKmH.set(Math.round(kmh));
 
             if (kmh > 10 && Date.now() - this.lastSpeedLimitFetch > 15000) {
@@ -188,10 +198,10 @@ export class Gps {
                 opacity: 1,
                 fillOpacity: 0.8,
             }).addTo(this.map);
-            if (get(autoFollow)) this.map.setView([lat, lng], 15, this.mapViewOptions);
+            if (get(autoFollow)) this.map.setView([lat, lng], 15, this.mapViewOptions).setBearing(bearing || this.map.getBearing());
         } else {
             this.currentPositionMarker.setLatLng([lat, lng]);
-            if (get(autoFollow)) this.map.setView([lat, lng], 15, this.mapViewOptions);
+            if (get(autoFollow)) this.map.setView([lat, lng], 15, this.mapViewOptions).setBearing(bearing || this.map.getBearing());
         }
 
         let shouldSave = true;
@@ -201,11 +211,12 @@ export class Gps {
         }
 
         if (shouldSave) {
-            gpsPath.update(path => [...path, { lat, lng, timestamp: new Date().toISOString() }]);
+            const point = { lat, lng, timestamp: new Date().toISOString(), tripId: this.currentTripId, speed: kmh };
+            gpsPath.update(path => [...path, point]);
             renderPath(this.map);
 
             if (this.offlineQueue.length > 0) {
-                this.offlineQueue.push({ lat, lng });
+                this.offlineQueue.push(point);
                 this.flushOfflineQueue();
                 return;
             }
@@ -214,11 +225,11 @@ export class Gps {
                 await authFetch(API_BASE + "/api/path", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ lat, lng }),
+                    body: JSON.stringify(point),
                 });
             } catch (e) {
                 console.error("Failed to save to DB, queueing offline", e);
-                this.offlineQueue.push({ lat, lng });
+                this.offlineQueue.push(point);
                 localStorage.setItem("gpsOfflineQueue", JSON.stringify(this.offlineQueue));
             }
         }
@@ -226,8 +237,8 @@ export class Gps {
 
     public handleVisibilityChange = () => {
         if (this.wakeLock !== null &&
-        document.visibilityState === "visible" &&
-        get(isTracking)
+            document.visibilityState === "visible" &&
+            get(isTracking)
         ) {
             this.requestWakeLock();
         }

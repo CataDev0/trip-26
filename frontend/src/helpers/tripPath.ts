@@ -36,6 +36,21 @@ export function splitTripsByGap(
     pathData: PathPoint[],
     gapMinutes = 30,
 ): PathPoint[][] {
+
+    // This should execute always
+    const hasTripIds = pathData.every((p) => p.trip_id);
+
+    if (hasTripIds) {
+        const grouped = new Map<number, PathPoint[]>();
+        pathData.forEach((p) => {
+            const key = p.trip_id!;
+            if (!grouped.has(key)) grouped.set(key, []);
+            grouped.get(key)!.push(p);
+        });
+        return Array.from(grouped.values());
+    }
+
+    // Fallback to gap based splits if trip_id is missing
     const trips: PathPoint[][] = [];
     let currentTrip: PathPoint[] = [];
     const gapMs = gapMinutes * 60 * 1000;
