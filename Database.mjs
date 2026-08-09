@@ -46,6 +46,12 @@ export function initializeDatabase(db) {
     `,
   ).run();
 
+  // Locations can optionally belong to a trip
+  addColumnIfMissing(db, 'locations', 'trip_id', 'INTEGER REFERENCES trips(id)');
+
+  // Soft-deleted trips end up in the trash bin
+  addColumnIfMissing(db, 'trips', 'deleted_at', 'DATETIME');
+
   if (!columnExists(db, 'gps_path', 'trip_id')) {
     db.prepare(`ALTER TABLE gps_path ADD COLUMN trip_id INTEGER REFERENCES trips(id)`).run();
     migrateTripIds(db);

@@ -1,6 +1,7 @@
 import L from "leaflet";
 import type { PathPoint } from "./mapData";
 import { gpsPath } from "../stores/tripStore";
+import { routeCoords } from "../stores/appStore";
 import { get } from "svelte/store";
 import { CHUNKS_PER_TRIP } from "./Constants";
 import { getLayerControl } from "./sharedMap";
@@ -165,6 +166,65 @@ export function renderPath(map: L.Map) {
             }
         });
     }
+}
+
+let tripSelectionGroup: L.LayerGroup | null = null;
+
+// Show one or more trips on the map as highlighted traces.
+// Returns the bounding box of the shown trips, or null if nothing was shown.
+export function showTripsOnMap(map: L.Map, tripIds: number[]): L.LatLngBounds | null {
+    const ids = new Set(tripIds);
+    const points = get(gpsPath).filter(
+        (p) => p.trip_id !== undefined && p.trip_id !== null && ids.has(p.trip_id),
+    );
+
+    if (points.length === 0) {
+        clearTripsFromMap(map);
+        return null;
+    }
+
+    const grouped = new Map<number, PathPoint[]>();
+    points.forEach((p) => {
+        const key = p.trip_id!;
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key)!.push(p);
+    });
+
+    if (!tripSelectionGroup) {
+        tripSelectionGroup = L.layerGroup();
+    }
+    tripSelectionGroup.clearLayers();
+
+    grouped.forEach((tripPoints) => {
+        if (tripPoints.length < 2) return;
+        L.polyline(toLatLngPath(tripPoints), {
+            color: "#ff8c00",
+            weight: 6,
+            smoothFactor: 1,
+        }).addTo(tripSelectionGroup!);
+    });
+
+    if (!map.hasLayer(tripSelectionGroup)) {
+        tripSelectionGroup.addTo(map);
+    }
+    return L.latLngBounds(toLatLngPath(points));
+}
+
+export function clearTripsFromMap(map: L.Map) {
+    if (tripSelectionGroup && map.hasLayer(tripSelectionGroup)) {
+        map.removeLayer(tripSelectionGroup);
+    }
+    tripSelectionGroup = null;
+}
+
+// Highlight a single trip as a navigation route, remembering its coordinates
+// for guidance. Returns the bounding box of the route, or null if unavailable.
+export function showTripRoute(map: L.Map, tripId: number): L.LatLngBounds | null {
+    const points = get(gpsPath).filter((p) => p.trip_id === tripId);
+    if (points.length < 2) return null;
+
+    routeCoords.set(points.map((p) => L.latLng(p.lat, p.lng)));
+    return showTripsOnMap(map, [tripId]);
 }
 
 // Simplify a trip's points using perpendicular distance threshold

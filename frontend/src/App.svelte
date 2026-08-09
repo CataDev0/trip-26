@@ -3,17 +3,17 @@
     import L from "leaflet";
 
     import TopBar from "./components/TopBar.svelte";
-    import { loadData, type LocationData } from "./helpers/mapData";
+    import { loadData } from "./helpers/mapData";
     import { MIN_ATTRACTIONS_ZOOM } from "./helpers/Constants";
     import { fetchAndRenderAttractions } from "./helpers/attractions";
     import { getSharedMap, reRenderPathBasedOnZoom } from "./helpers/sharedMap";
-    import { getMarker } from "./helpers/locationMarkers";
+    import { showTripRoute, showTripsOnMap } from "./helpers/tripPath";
     import SideBar from "./components/SideBar.svelte";
     import { canSaveLocations } from "./stores/editStore";
     import { isLiveTracking } from "./stores/appStore";
     import { LiveTracking } from "./helpers/liveTracking";
     import { get } from "svelte/store";
-  import { DoorOpen, LogIn } from "lucide-svelte";
+  import { LogIn } from "lucide-svelte";
 
     let map: L.Map;
     let mapContainer: HTMLDivElement;
@@ -74,17 +74,28 @@
         }
     }
 
-    function jumpToLocation(loc: LocationData) {
+    function showTrip(tripId: number) {
         sidebarExpanded = false;
-        map.flyTo([loc.lat, loc.lng], 16, { duration: 1.5 });
+        const bounds = showTripsOnMap(map, [tripId]);
+        if (bounds) {
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+        }
+    }
 
-        // Give it a moment to fly there before opening popup
-        setTimeout(() => {
-            const marker = getMarker(loc.id);
-            if (marker) {
-                marker.openPopup();
-            }
-        }, 1500);
+    function showTrips(tripIds: number[]) {
+        sidebarExpanded = false;
+        const bounds = showTripsOnMap(map, tripIds);
+        if (bounds) {
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+        }
+    }
+
+    function routeGuidance(tripId: number) {
+        sidebarExpanded = false;
+        const bounds = showTripRoute(map, tripId);
+        if (bounds) {
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+        }
     }
 
     onDestroy(() => {
@@ -131,7 +142,12 @@
 </TopBar>
 
 <div class="main-content">
-    <SideBar {sidebarExpanded} on:jump={(e) => jumpToLocation(e.detail)} />
+    <SideBar
+        {sidebarExpanded}
+        on:showTrip={(e) => showTrip(e.detail)}
+        on:showTrips={(e) => showTrips(e.detail)}
+        on:routeGuidance={(e) => routeGuidance(e.detail)}
+    />
 
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->

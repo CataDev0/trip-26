@@ -96,7 +96,7 @@ if (count.count === 0) {
 app.get("/api/locations", (req, res) => {
     try {
         const locations = db
-            .prepare("SELECT id, name, lat, lng FROM locations")
+            .prepare("SELECT id, name, lat, lng, trip_id FROM locations")
             .all();
         res.json(locations);
     } catch {
@@ -218,6 +218,130 @@ app.put("/api/path", (req, res) => {
     }
 });
 
+// Get all trips. Include ?trashed=true to list soft-deleted trips instead
+app.get("/api/trips", (req, res) => {
+    try {
+        const { trashed } = req.query;
+        const trips = db
+            .prepare(
+                `
+                SELECT t.id, t.started_at, t.ended_at, t.name, t.deleted_at,
+                       (SELECT COUNT(*) FROM gps_path p WHERE p.trip_id = t.id) AS point_count
+                FROM trips t
+                WHERE ${trashed === "true" ? "t.deleted_at IS NOT NULL" : "t.deleted_at IS NULL"}
+                ORDER BY t.started_at DESC
+                `,
+            )
+            .all();
+        res.json(trips);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not load trips" });
+    }
+});
+
+// Create a new (empty) trip
+app.post("/api/trips", (req, res) => {
+    try {
+        const { name } = req.body;
+        const result = db
+            .prepare("INSERT INTO trips (name) VALUES (?)")
+            .run(name || "New Trip");
+        res.json({ success: true, id: Number(result.lastInsertRowid) });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not create trip" });
+    }
+});
+
+// Update a trip (rename)
+app.put("/api/trips/:id", (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name) return res.status(400).json({ error: "Missing name" });
+
+        const result = db
+            .prepare("UPDATE trips SET name = ? WHERE id = ?")
+            .run(name, req.params.id);
+        if (result.changes === 0) return res.status(404).json({ error: "Trip not found" });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not update trip" });
+    }
+});
+
+// Move trips to the trash bin (soft delete)
+app.delete("/api/trips", (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: "Missing ids" });
+        }
+
+        const placeholders = ids.map(() => "?").join(",");
+        const result = db
+            .prepare(
+                `UPDATE trips SET deleted_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+            )
+            .run(...ids);
+        res.json({ success: true, moved: result.changes });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not remove trips" });
+    }
+});
+
+// Restore trips from the trash bin
+app.post("/api/trips/restore", (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: "Missing ids" });
+        }
+
+        const placeholders = ids.map(() => "?").join(",");
+        const result = db
+            .prepare(
+                `UPDATE trips SET deleted_at = NULL WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+            )
+            .run(...ids);
+        res.json({ success: true, restored: result.changes });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not restore trips" });
+    }
+});
+
+// Permanently delete trips (and any locations or GPS points belonging to them)
+app.post("/api/trips/purge", (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: "Missing ids" });
+        }
+
+        const placeholders = ids.map(() => "?").join(",");
+        const purge = db.transaction(() => {
+            db.prepare(
+                `DELETE FROM gps_path WHERE trip_id IN (${placeholders})`,
+            ).run(...ids);
+            db.prepare(
+                `DELETE FROM locations WHERE trip_id IN (${placeholders})`,
+            ).run(...ids);
+            return db
+                .prepare(`DELETE FROM trips WHERE id IN (${placeholders})`)
+                .run(...ids).changes;
+        });
+        const removed = purge();
+        res.json({ success: true, removed });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not purge trips" });
+    }
+});
+
 // Proxy route for HERE Speed Limit
 app.get("/api/speed-limit", async (req, res) => {
     const { lat, lng } = req.query;
@@ -255,7 +379,7 @@ app.post("/api/locations", (req, res) => {
     try {
         const newLocations = req.body;
         const insert = db.prepare(
-            "INSERT INTO locations (id, name, lat, lng) VALUES (?, ?, ?, ?)",
+            "INSERT INTO locations (id, name, lat, lng, trip_id) VALUES (?, ?, ?, ?, ?)",
         );
 
         // Clear and insert
@@ -265,11 +389,11 @@ app.post("/api/locations", (req, res) => {
                 if (loc.name && loc.lat !== undefined && loc.lng !== undefined) {
                     // If it has an existing ID, keep it, else let sqlite generate one
                     if (loc.id !== undefined) {
-                        insert.run(loc.id, loc.name, loc.lat, loc.lng);
+                        insert.run(loc.id, loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
                     } else {
                         db.prepare(
-                            "INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)",
-                        ).run(loc.name, loc.lat, loc.lng);
+                            "INSERT INTO locations (name, lat, lng, trip_id) VALUES (?, ?, ?, ?)",
+                        ).run(loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
                     }
                 }
             }
@@ -292,17 +416,17 @@ app.put("/api/locations/single", (req, res) => {
         }
 
         const insert = db.prepare(
-            "INSERT INTO locations (id, name, lat, lng) VALUES (?, ?, ?, ?)",
+            "INSERT INTO locations (id, name, lat, lng, trip_id) VALUES (?, ?, ?, ?, ?)",
         );
         let result;
 
         // If it has an existing ID, keep it, else let sqlite generate one
         if (loc.id !== undefined) {
-            result = insert.run(loc.id, loc.name, loc.lat, loc.lng);
+            result = insert.run(loc.id, loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
         } else {
             result = db.prepare(
-                "INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)",
-            ).run(loc.name, loc.lat, loc.lng);
+                "INSERT INTO locations (name, lat, lng, trip_id) VALUES (?, ?, ?, ?)",
+            ).run(loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
         }
 
         // Return the ID of the inserted location as a string to avoid parsing bigint
