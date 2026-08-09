@@ -110,7 +110,6 @@
 </script>
 
 <TopBar
-    title="Trip Tracker V1"
     showSidebarToggle={true}
     statusText={$gpsStatus}
     on:toggleSidebar={() => (sidebarExpanded = !sidebarExpanded)}
@@ -133,7 +132,7 @@
             {findingAttractions
                 ? "Loading..."
                 : currentZoom < MIN_ATTRACTIONS_ZOOM
-                    ? "Zoom in to find attractions"
+                    ? "Zoom to find attractions"
                     : "Find Nearby Attractions"}
         </button>
         <a

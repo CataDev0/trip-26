@@ -92,7 +92,6 @@
 </script>
 
 <TopBar
-    title="Trip Tracker V1"
     showSidebarToggle={true}
     on:toggleSidebar={() => (sidebarExpanded = !sidebarExpanded)}
 >
@@ -105,14 +104,14 @@
             {findingAttractions
                 ? "Loading..."
                 : currentZoom < MIN_ATTRACTIONS_ZOOM
-                    ? "Zoom in to find attractions"
+                    ? "Zoom to find attractions"
                     : "Find Nearby Attractions"}
         </button>
         <a
             href="/suite"
             class="btn"
-            style="text-decoration:none; background-color:#ffc107; color:black;"
-            >Enter</a
+            style="margin-left: auto; text-decoration:none; background-color:#ffcc00; color:black;"
+            >Enter ➡️</a
         >
         {#if $isLiveTracking}
             <button
@@ -124,7 +123,7 @@
                 }}
                 class="btn"
                 style="text-decoration:none; background-color:#28a745; color:white;"
-                >Go to Live Tracking
+                >Follow Live Tracking
             </button>
         {/if}
     </svelte:fragment>

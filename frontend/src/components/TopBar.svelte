@@ -3,7 +3,8 @@
   import LoginModal from "./LoginModal.svelte";
   import { API_BASE, VISITOR_COUNT_REFRESH_INTERVAL } from "../helpers/Constants";
 
-  export let title: string;
+  export let title = "Trip Tracker";
+  export let version: string | null = "V1";
   export let showSidebarToggle: boolean = false;
   export let showVisitorCount: boolean = true;
   export let statusText: string | null = null;
@@ -44,27 +45,29 @@
 </script>
 
 <div class="controls">
-  <div style="display:flex; align-items:center; gap:10px;">
-    {#if showSidebarToggle}
-      <button
-        class="sidebar-toggle-btn"
-        on:click={() => dispatch("toggleSidebar")}
-      >
-        ☰ Places
-      </button>
-    {/if}
-    <h1 style="margin:0;">{title}</h1>
-    {#if showVisitorCount}
-      <span
-        style="font-size: 0.9em; color: #555; background: #eee; padding: 2px 8px; border-radius: 12px; white-space: nowrap;"
-      >
-        Live counter: {visitorCount}
-      </span>
+  {#if showSidebarToggle}
+    <button class="sidebar-toggle-btn" on:click={() => dispatch("toggleSidebar")}>
+      ☰
+    </button>
+  {/if}
+
+  <div class="title-block">
+    <h1>{title}</h1>
+    {#if version}
+      <span class="version">{version}</span>
     {/if}
   </div>
+
+  {#if showVisitorCount}
+    <span class="visitor-count">
+      {visitorCount} 👁️ 
+      <!-- TODO: Use icon lib -->
+    </span>
+  {/if}
   <div class="buttons">
     <slot name="buttons"></slot>
   </div>
+
   {#if statusText}
     <div class="status">{statusText}</div>
   {/if}
