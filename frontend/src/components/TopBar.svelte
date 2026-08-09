@@ -2,6 +2,7 @@
   import { onMount, createEventDispatcher } from "svelte";
   import LoginModal from "./LoginModal.svelte";
   import { API_BASE, VISITOR_COUNT_REFRESH_INTERVAL } from "../helpers/Constants";
+  import { EyeIcon } from "lucide-svelte";
 
   export let title = "Trip Tracker";
   export let version: string | null = "V1";
@@ -59,9 +60,8 @@
   </div>
 
   {#if showVisitorCount}
-    <span class="visitor-count">
-      {visitorCount} 👁️ 
-      <!-- TODO: Use icon lib -->
+    <span class="visitor-count" title="Number of visitors currently on the site">
+      {visitorCount} <EyeIcon size="20" style="vertical-align: middle;" /> 
     </span>
   {/if}
   <div class="buttons">

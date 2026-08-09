@@ -62,13 +62,16 @@ h1 {
 }
 
 .visitor-count {
-  font-size: 0.9em;
+  font-size: 0.9rem;
   color: #fff;
   background: #d732a8;
   padding: 5px 10px;
   border-radius: 25px;
   white-space: nowrap;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .buttons {

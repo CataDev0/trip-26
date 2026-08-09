@@ -13,6 +13,7 @@
     import { isLiveTracking } from "./stores/appStore";
     import { LiveTracking } from "./helpers/liveTracking";
     import { get } from "svelte/store";
+  import { DoorOpen, LogIn } from "lucide-svelte";
 
     let map: L.Map;
     let mapContainer: HTMLDivElement;
@@ -111,7 +112,7 @@
             href="/suite"
             class="btn"
             style="margin-left: auto; text-decoration:none; background-color:#ffcc00; color:black;"
-            >Enter ➡️</a
+            >Enter <LogIn size="16" style="vertical-align: middle;" /></a
         >
         {#if $isLiveTracking}
             <button

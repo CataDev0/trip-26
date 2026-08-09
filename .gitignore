@@ -11,3 +11,5 @@ frontend/android/app/build
 frontend/android/build
 frontend/android/app/src/main/assets/public
 !frontend/public/
+
+AGENTS.md
