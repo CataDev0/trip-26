@@ -20,3 +20,4 @@ export const currentSpeedLimit = writable<number | null>(null);
 export const trips = writable<Trip[]>([]);
 export const trashedTrips = writable<Trip[]>([]);
 export const selectedTripIds = writable<Set<number>>(new Set());
+export const pathDataReady = writable(false);

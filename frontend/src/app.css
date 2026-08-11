@@ -121,12 +121,22 @@ h1 {
 
 .sidebar {
   width: 30rem;
+  max-width: 100%;
   background-color: #fff;
   border-right: 1px solid #ddd;
   overflow-y: auto;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, width 0.3s ease;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+}
+
+.sidebar:not(.expanded) {
+  width: 0;
+  min-width: 0;
+  border-right: none;
+  overflow: hidden;
+  padding: 0;
 }
 
 .sidebar-header {
@@ -140,7 +150,7 @@ h1 {
 }
 
 .sidebar-toggle-btn {
-  display: none;
+  display: block;
   background: #007bff;
   color: #fff;
   border: none;
@@ -482,12 +492,22 @@ h1 {
     position: absolute;
     z-index: 1000;
     height: 100%;
+    width: 85vw;
+    max-width: 30rem;
     transform: translateX(-100%);
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2);
   }
 
+  .sidebar:not(.expanded) {
+    width: 0;
+    min-width: 0;
+    transform: translateX(-100%);
+  }
+
   .sidebar.expanded {
     transform: translateX(0);
+    width: 85vw;
+    max-width: 30rem;
   }
 
   .sidebar-toggle-btn {

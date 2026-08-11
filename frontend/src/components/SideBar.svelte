@@ -50,7 +50,14 @@
         { mode: "name-desc", label: "Z → A" },
     ];
 
-    const tripName = (trip: Trip): string => trip.name || `Trip ${trip.id}`;
+    const tripName = (trip: Trip): string => trip.name || `New Trip ${shortDate(trip.started_at)}`;
+
+    function shortDate(isoString?: string | null): string {
+        if (!isoString) return "";
+        const d = new Date(isoString);
+        if (Number.isNaN(d.getTime())) return "";
+        return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
 
     function computeFilteredTrips(allTrips: Trip[], query: string, mode: SortMode): Trip[] {
         let list = allTrips;
@@ -98,10 +105,6 @@
         sortMode = SORT_MODES[(index + 1) % SORT_MODES.length].mode;
     }
 
-    function isSelected(id: number): boolean {
-        return get(selectedTripIds).has(id);
-    }
-
     function toggleSelect(id: number) {
         selectedTripIds.update((set) => {
             const next = new Set(set);
@@ -136,10 +139,11 @@
     }
 
     async function addNewTrip() {
-        const name = prompt("New trip name:");
+        const defaultName = `New Trip ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+        const name = prompt("New trip name:", defaultName);
         if (name === null) return;
         try {
-            await createTrip(name.trim() || "New Trip");
+            await createTrip(name.trim() || defaultName);
         } catch (err) {
             console.error("Failed to create trip", err);
             alert("Failed to create trip.");
@@ -254,12 +258,12 @@
                 <!-- svelte-ignore a11y-click-events-have-key-events -->
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
                 <div
-                    class="trip-item {isSelected(trip.id) ? "selected" : ""}"
+                    class="trip-item {$selectedTripIds.has(trip.id) ? "selected" : ""}"
                     on:click={() => toggleSelect(trip.id)}
                 >
                     <input
                         type="checkbox"
-                        checked={isSelected(trip.id)}
+                        checked={$selectedTripIds.has(trip.id)}
                         on:click|stopPropagation={() => toggleSelect(trip.id)}
                     />
                     <div class="trip-info">

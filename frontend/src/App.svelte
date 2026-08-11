@@ -12,6 +12,7 @@
     import { canSaveLocations } from "./stores/editStore";
     import { isLiveTracking } from "./stores/appStore";
     import { LiveTracking } from "./helpers/liveTracking";
+    import { gpsPath, pathDataReady } from "./stores/tripStore";
     import { get } from "svelte/store";
   import { LogIn } from "lucide-svelte";
 
@@ -75,26 +76,50 @@
     }
 
     function showTrip(tripId: number) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
         sidebarExpanded = false;
+        // Render the orange highlight immediately
         const bounds = showTripsOnMap(map, [tripId]);
         if (bounds) {
-            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            // Delay the map flight until the sidebar collapse transition finishes
+            // so the map dimensions are stable
+            setTimeout(() => {
+                map.invalidateSize();
+                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            }, 350);
         }
     }
 
     function showTrips(tripIds: number[]) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
         sidebarExpanded = false;
         const bounds = showTripsOnMap(map, tripIds);
         if (bounds) {
-            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            setTimeout(() => {
+                map.invalidateSize();
+                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            }, 350);
         }
     }
 
     function routeGuidance(tripId: number) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
         sidebarExpanded = false;
         const bounds = showTripRoute(map, tripId);
         if (bounds) {
-            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            setTimeout(() => {
+                map.invalidateSize();
+                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            }, 350);
         }
     }
 
@@ -154,6 +179,5 @@
     <div
         class="map"
         bind:this={mapContainer}
-        on:click={() => (sidebarExpanded = false)}
     ></div>
 </div>

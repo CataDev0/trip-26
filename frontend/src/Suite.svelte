@@ -138,7 +138,7 @@
         <a
             href="/edit"
             class="btn"
-            style="text-decoration:none; background-color:#ffc107; color:black;"
+            style="margin-left: auto; text-decoration:none; background-color:#ffc107; color:black;"
             >Edit Mode</a
         >
         <a
@@ -158,7 +158,6 @@
     <div
         class="map"
         bind:this={mapContainer}
-        on:click={() => (sidebarExpanded = false)}
         aria-label="Map view showing current location and nearby attractions"
         role="region"
     >

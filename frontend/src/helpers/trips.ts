@@ -8,7 +8,7 @@ export async function fetchTrips(): Promise<void> {
         fetch(API_BASE + "/api/trips"),
         fetch(API_BASE + "/api/trips?trashed=true"),
     ]);
-    console.log("fetchTrips: activeRes.ok =", activeRes.ok, "trashRes.ok =", trashRes.ok);
+
     if (!activeRes.ok || !trashRes.ok) {
         throw new Error("Failed to load trips");
     }

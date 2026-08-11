@@ -166,6 +166,11 @@ export function renderPath(map: L.Map) {
             }
         });
     }
+
+    // Keep the trip selection (orange highlight) on top after re-rendering
+    if (tripSelectionGroup && map.hasLayer(tripSelectionGroup)) {
+        tripSelectionGroup.setZIndex(1000);
+    }
 }
 
 let tripSelectionGroup: L.LayerGroup | null = null;
@@ -207,6 +212,7 @@ export function showTripsOnMap(map: L.Map, tripIds: number[]): L.LatLngBounds | 
     if (!map.hasLayer(tripSelectionGroup)) {
         tripSelectionGroup.addTo(map);
     }
+    tripSelectionGroup.setZIndex(1000);
     return L.latLngBounds(toLatLngPath(points));
 }
 

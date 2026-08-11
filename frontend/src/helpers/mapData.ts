@@ -2,7 +2,7 @@ import L from "leaflet";
 import { API_BASE } from "./Constants";
 import { locations, renderLocations, updateMarkerPopup, visitedIds } from "./locationMarkers";
 import { renderPath, toLatLngPath } from "./tripPath";
-import { gpsPath } from "../stores/tripStore";
+import { gpsPath, pathDataReady } from "../stores/tripStore";
 
 export interface LocationData {
     id: number;
@@ -65,6 +65,7 @@ export async function loadData(map: L.Map) {
         locations.update(() => data.locations);
         visitedIds.update(() => data.visitedIds);
         gpsPath.update(() => data.pathData);
+        pathDataReady.set(true);
 
         renderLocations(map);
         renderPath(map);

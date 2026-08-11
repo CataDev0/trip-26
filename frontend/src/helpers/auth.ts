@@ -67,6 +67,11 @@ export async function authFetch(url: string, options: any = {}) {
         if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("require-login"));
         }
+        throw new Error("Authentication required. Please log in and try again.");
+    }
+    if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Request failed (${res.status}): ${body || res.statusText}`);
     }
     return res;
 }
