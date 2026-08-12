@@ -167,17 +167,59 @@ export function renderPath(map: L.Map) {
         });
     }
 
-    // Keep the trip selection (orange highlight) on top after re-rendering
-    if (tripSelectionGroup && map.hasLayer(tripSelectionGroup)) {
-        tripSelectionGroup.setZIndex(1000);
-    }
+    // Re-render the trip selection so it stays above the re-optimized traces
+    reRenderTripSelection(map);
 }
 
 let tripSelectionGroup: L.LayerGroup | null = null;
+let shownTripIds: number[] = [];
 
-// Show one or more trips on the map as highlighted traces.
-// Returns the bounding box of the shown trips, or null if nothing was shown.
-export function showTripsOnMap(map: L.Map, tripIds: number[]): L.LatLngBounds | null {
+const TRIP_SELECTION_PANE = "trip-selection-pane";
+
+// Dedicated pane for the highlighted trip selection. 
+// Z-index above the overlay pane at 400, so the highlight can never be covered by traces
+// Markers (600), tooltips (650) popups (700) 
+function getTripSelectionPane(map: L.Map): HTMLElement {
+    let pane = map.getPane(TRIP_SELECTION_PANE);
+    if (!pane) {
+        pane = map.createPane(TRIP_SELECTION_PANE);
+        const parent = map.getPane("rotatePane") || map.getPane("mapPane");
+        parent?.appendChild(pane);
+        pane.style.zIndex = "450";
+        pane.style.pointerEvents = "none";
+    }
+    return pane;
+}
+
+// Render the trip with a highlight
+function addHighlightPolyline(group: L.LayerGroup, coords: LatLngTuple[]) {
+    // Outer glow
+    L.polyline(coords, {
+        color: "#ff8c00",
+        weight: 14,
+        opacity: 0.3,
+        smoothFactor: 1,
+        pane: TRIP_SELECTION_PANE,
+    }).addTo(group);
+    // White casing
+    L.polyline(coords, {
+        color: "#ffffff",
+        weight: 9,
+        opacity: 1,
+        smoothFactor: 1,
+        pane: TRIP_SELECTION_PANE,
+    }).addTo(group);
+    // Main orange line
+    L.polyline(coords, {
+        color: "#ff8c00",
+        weight: 5,
+        opacity: 1,
+        smoothFactor: 1,
+        pane: TRIP_SELECTION_PANE,
+    }).addTo(group);
+}
+
+function renderTripSelection(map: L.Map, tripIds: number[]): L.LatLngBounds | null {
     const ids = new Set(tripIds);
     const points = get(gpsPath).filter(
         (p) => p.trip_id !== undefined && p.trip_id !== null && ids.has(p.trip_id),
@@ -187,6 +229,8 @@ export function showTripsOnMap(map: L.Map, tripIds: number[]): L.LatLngBounds | 
         clearTripsFromMap(map);
         return null;
     }
+
+    getTripSelectionPane(map);
 
     const grouped = new Map<number, PathPoint[]>();
     points.forEach((p) => {
@@ -202,18 +246,50 @@ export function showTripsOnMap(map: L.Map, tripIds: number[]): L.LatLngBounds | 
 
     grouped.forEach((tripPoints) => {
         if (tripPoints.length < 2) return;
-        L.polyline(toLatLngPath(tripPoints), {
-            color: "#ff8c00",
-            weight: 6,
-            smoothFactor: 1,
-        }).addTo(tripSelectionGroup!);
+        const simplified = simplifyTripByZoom(map, tripPoints, 3);
+        if (simplified.length < 2) return;
+        addHighlightPolyline(tripSelectionGroup!, toLatLngPath(simplified));
+
+        // Start and end markers for this trip
+        const start = tripPoints[0];
+        const end = tripPoints[tripPoints.length - 1];
+        L.circleMarker([start.lat, start.lng], {
+            radius: 7,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: "#28a745",
+            fillOpacity: 1,
+            pane: TRIP_SELECTION_PANE,
+        }).bindTooltip("Start", { "permanent": true }).openTooltip().addTo(tripSelectionGroup!);
+        L.circleMarker([end.lat, end.lng], {
+            radius: 7,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: "#dc3545",
+            fillOpacity: 1,
+            pane: TRIP_SELECTION_PANE,
+        }).bindTooltip("End", { "permanent": true }).openTooltip().addTo(tripSelectionGroup!);
     });
 
     if (!map.hasLayer(tripSelectionGroup)) {
         tripSelectionGroup.addTo(map);
     }
-    tripSelectionGroup.setZIndex(1000);
     return L.latLngBounds(toLatLngPath(points));
+}
+
+// Re-render the currently shown trip highlight (e.g. after a zoom change
+// re-optimized the GPS traces beneath it).
+function reRenderTripSelection(map: L.Map) {
+    if (tripSelectionGroup && shownTripIds.length > 0) {
+        renderTripSelection(map, shownTripIds);
+    }
+}
+
+// Show one or more trips on the map as highlighted traces.
+// Returns the bounding box of the shown trips, or null if nothing was shown.
+export function showTripsOnMap(map: L.Map, tripIds: number[]): L.LatLngBounds | null {
+    shownTripIds = [...tripIds];
+    return renderTripSelection(map, tripIds);
 }
 
 export function clearTripsFromMap(map: L.Map) {
@@ -221,6 +297,7 @@ export function clearTripsFromMap(map: L.Map) {
         map.removeLayer(tripSelectionGroup);
     }
     tripSelectionGroup = null;
+    shownTripIds = [];
 }
 
 // Highlight a single trip as a navigation route, remembering its coordinates

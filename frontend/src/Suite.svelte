@@ -4,19 +4,17 @@
 
     import TopBar from "./components/TopBar.svelte";
     import SideBar from "./components/SideBar.svelte";
-    import {
-        loadData,
-        type LocationData,
-    } from "./helpers/mapData";
+    import { loadData } from "./helpers/mapData";
     import type { LeafletWindow } from "./typed/Typed";
     import { Gps } from "./helpers/gps";
-    import { getMarker, markVisited } from "./helpers/locationMarkers";
+    import { markVisited } from "./helpers/locationMarkers";
     import { MIN_ATTRACTIONS_ZOOM } from "./helpers/Constants";
     import { fetchAndRenderAttractions, saveAttraction } from "./helpers/attractions";
     import { getAuthHeader } from "./helpers/auth";
     import { getSharedMap, reRenderPathBasedOnZoom } from "./helpers/sharedMap";
+    import { showTripRoute, showTripsOnMap } from "./helpers/tripPath";
     import { canSaveLocations } from "./stores/editStore";
-    import { autoFollow, isTracking, gpsStatus, currentSpeedLimit, currentSpeedKmH } from "./stores/tripStore";
+    import { autoFollow, isTracking, gpsStatus, currentSpeedLimit, currentSpeedKmH, gpsPath, pathDataReady } from "./stores/tripStore";
     import { get } from "svelte/store";
 
     let map: L.Map;
@@ -95,17 +93,49 @@
         }
     }
 
-    function jumpToLocation(loc: LocationData) {
+    function showTrip(tripId: number) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
         sidebarExpanded = false;
-        map.flyTo([loc.lat, loc.lng], 16, { duration: 1.5 });
+        const bounds = showTripsOnMap(map, [tripId]);
+        if (bounds) {
+            setTimeout(() => {
+                map.invalidateSize();
+                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            }, 350);
+        }
+    }
 
-        // Give it a moment to fly there before opening popup
-        setTimeout(() => {
-            const marker = getMarker(loc.id);
-            if (marker) {
-                marker.openPopup();
-            }
-        }, 1500);
+    function showTrips(tripIds: number[]) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
+        sidebarExpanded = false;
+        const bounds = showTripsOnMap(map, tripIds);
+        if (bounds) {
+            setTimeout(() => {
+                map.invalidateSize();
+                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            }, 350);
+        }
+    }
+
+    function routeGuidance(tripId: number) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
+        sidebarExpanded = false;
+        const bounds = showTripRoute(map, tripId);
+        if (bounds) {
+            setTimeout(() => {
+                map.invalidateSize();
+                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+            }, 350);
+        }
     }
 </script>
 
@@ -151,7 +181,12 @@
 </TopBar>
 
 <div class="main-content">
-    <SideBar sidebarExpanded={sidebarExpanded} on:jump={(e) => jumpToLocation(e.detail)} />
+    <SideBar
+        {sidebarExpanded}
+        on:showTrip={(e) => showTrip(e.detail)}
+        on:showTrips={(e) => showTrips(e.detail)}
+        on:routeGuidance={(e) => routeGuidance(e.detail)}
+    />
 
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
