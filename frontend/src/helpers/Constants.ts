@@ -15,4 +15,4 @@ export const visitedIcon = new L.Icon({
     shadowSize: [41, 41]
 });
 
-export const CHUNKS_PER_TRIP = 4;
+export const MAX_SEGMENTS_PER_TRIP = 200;

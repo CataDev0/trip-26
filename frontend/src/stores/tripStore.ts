@@ -21,3 +21,5 @@ export const trips = writable<Trip[]>([]);
 export const trashedTrips = writable<Trip[]>([]);
 export const selectedTripIds = writable<Set<number>>(new Set());
 export const pathDataReady = writable(false);
+// Trips currently highlighted on the map ("Show on map")
+export const highlightedTripIds = writable<number[]>([]);

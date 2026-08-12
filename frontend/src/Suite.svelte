@@ -98,13 +98,9 @@
             alert("Trip data is still loading. Please wait a moment and try again.");
             return;
         }
-        sidebarExpanded = false;
         const bounds = showTripsOnMap(map, [tripId]);
         if (bounds) {
-            setTimeout(() => {
-                map.invalidateSize();
-                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
-            }, 350);
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
         }
     }
 
@@ -113,13 +109,9 @@
             alert("Trip data is still loading. Please wait a moment and try again.");
             return;
         }
-        sidebarExpanded = false;
         const bounds = showTripsOnMap(map, tripIds);
         if (bounds) {
-            setTimeout(() => {
-                map.invalidateSize();
-                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
-            }, 350);
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
         }
     }
 
@@ -128,13 +120,9 @@
             alert("Trip data is still loading. Please wait a moment and try again.");
             return;
         }
-        sidebarExpanded = false;
         const bounds = showTripRoute(map, tripId);
         if (bounds) {
-            setTimeout(() => {
-                map.invalidateSize();
-                map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
-            }, 350);
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
         }
     }
 </script>

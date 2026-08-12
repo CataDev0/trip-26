@@ -18,6 +18,7 @@ export interface PathPoint {
     lat: number;
     lng: number;
     timestamp?: string;
+    current_speed?: number | null;   // km/h, null/undefined for legacy rows
 }
 
 export interface MapBootstrapData {

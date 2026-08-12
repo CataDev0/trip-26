@@ -300,6 +300,22 @@ h1 {
   background-color: #e7f1ff;
 }
 
+.trip-item.highlighted {
+  background-color: #fff3e0;
+  box-shadow: inset 3px 0 0 #ff8c00;
+}
+
+.highlight-badge {
+  font-size: 0.65rem;
+  font-weight: bold;
+  color: #fff;
+  background: #ff8c00;
+  padding: 2px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .trip-item input[type="checkbox"] {
   flex-shrink: 0;
 }

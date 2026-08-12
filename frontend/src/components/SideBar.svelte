@@ -16,7 +16,7 @@
         Trash2,
         X,
     } from "lucide-svelte";
-    import { selectedTripIds, trashedTrips, trips, type Trip } from "../stores/tripStore";
+    import { highlightedTripIds, selectedTripIds, trashedTrips, trips, type Trip } from "../stores/tripStore";
     import {
         createTrip,
         exportTrips,
@@ -258,7 +258,7 @@
                 <!-- svelte-ignore a11y-click-events-have-key-events -->
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
                 <div
-                    class="trip-item {$selectedTripIds.has(trip.id) ? "selected" : ""}"
+                    class="trip-item {$selectedTripIds.has(trip.id) ? "selected" : ""} {$highlightedTripIds.includes(trip.id) ? "highlighted" : ""}"
                     on:click={() => toggleSelect(trip.id)}
                 >
                     <input
@@ -275,6 +275,9 @@
                             {/if}
                         </div>
                     </div>
+                    {#if $highlightedTripIds.includes(trip.id)}
+                        <span class="highlight-badge" title="Highlighted on map">On map</span>
+                    {/if}
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-static-element-interactions -->
                     <div class="trip-actions" on:click|stopPropagation>

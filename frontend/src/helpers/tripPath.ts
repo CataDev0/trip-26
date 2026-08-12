@@ -1,10 +1,11 @@
 import L from "leaflet";
 import type { PathPoint } from "./mapData";
-import { gpsPath } from "../stores/tripStore";
+import { gpsPath, highlightedTripIds } from "../stores/tripStore";
 import { routeCoords } from "../stores/appStore";
 import { get } from "svelte/store";
-import { CHUNKS_PER_TRIP } from "./Constants";
+import { MAX_SEGMENTS_PER_TRIP } from "./Constants";
 import { getLayerControl } from "./sharedMap";
+import { fillSpeedGaps, speedColor, timeColor } from "./traceColor";
 
 type PointsWithPx = {
     original: PathPoint;
@@ -12,6 +13,20 @@ type PointsWithPx = {
 }[]
 export type LatLngTuple = [number, number];
 let pathLayerGroup: L.LayerGroup | null = null;
+
+// Shared canvas renderer for all gradient trace segments. One renderer
+// instance redraws every segment in a single 2D context, which scales
+// much better than thousands of SVG nodes. Map.getRenderer auto-adds it
+// to the map when the first segment is rendered, and it stays on the map
+// (it is a map layer, not a group member) when segments are rebuilt.
+let sharedTraceRenderer: L.Canvas | null = null;
+
+function getSharedTraceRenderer(): L.Canvas {
+    if (!sharedTraceRenderer) {
+        sharedTraceRenderer = L.canvas();
+    }
+    return sharedTraceRenderer;
+}
 
 // Convert array of PathPoint to array of LatLngTuple for Leaflet
 export function toLatLngPath(pathData: PathPoint[]): LatLngTuple[] {
@@ -106,25 +121,52 @@ export function renderTripPath(
 
     trips.forEach((trip) => {
         if (trip.length < 2) return;
+
+        // Map raw points to their index so segments can look up
+        // speed / fraction along the trip (simplifyTripByZoom returns
+        // the same object references, so lookups work).
+        const rawIndex = new Map<PathPoint, number>();
+        trip.forEach((p, i) => rawIndex.set(p, i));
+
+        // null => legacy trip with no speed data => time-based gradient
+        const speeds = fillSpeedGaps(trip.map((p) => p.current_speed ?? null));
+
         const simplified = simplifyTripByZoom(map, trip, 3);
         if (simplified.length < 2) return;
 
-        const numChunks = Math.min(CHUNKS_PER_TRIP, simplified.length - 1);
-        const chunkSize = Math.ceil(simplified.length / numChunks);
+        const n = simplified.length;
+        const stride = Math.max(1, Math.ceil((n - 1) / MAX_SEGMENTS_PER_TRIP));
 
-        for (let c = 0; c < numChunks; c++) {
-            const start = c * chunkSize;
-            const end = Math.min(start + chunkSize + 1, simplified.length);
-            const chunkCoords = simplified.slice(start, end);
-            if (chunkCoords.length < 2) continue;
+        for (let start = 0; start < n - 1; start += stride) {
+            const end = Math.min(start + stride, n - 1);
+            const a = simplified[start];
+            const b = simplified[end];
+            if (a.lat === b.lat && a.lng === b.lng) continue;
 
-            const fraction = numChunks > 1 ? c / (numChunks - 1) : 0;
-            const hue = 280 - fraction * 160;
+            let color: string;
+            if (speeds) {
+                // Average speed over the span, so long low-zoom segments
+                // represent the whole stretch they cover.
+                const i0 = rawIndex.get(a)!;
+                const i1 = rawIndex.get(b)!;
+                let sum = 0;
+                for (let i = i0; i <= i1; i++) sum += speeds[i];
+                color = speedColor(sum / (i1 - i0 + 1));
+            } else {
+                // Time-based fallback: fraction along the raw trip
+                color = timeColor(rawIndex.get(a)! / (trip.length - 1));
+            }
 
             chunkLayers.push(
                 L.polyline(
-                    chunkCoords.map((p) => [p.lat, p.lng] as [number, number]),
-                    { color: `hsl(${hue}, 100%, 50%)`, weight: 5, smoothFactor: 1 },
+                    [[a.lat, a.lng], [b.lat, b.lng]] as LatLngTuple[],
+                    {
+                        color,
+                        weight: 5,
+                        smoothFactor: 1,
+                        renderer: getSharedTraceRenderer(),
+                        interactive: false,
+                    },
                 ),
             );
         }
@@ -289,7 +331,11 @@ function reRenderTripSelection(map: L.Map) {
 // Returns the bounding box of the shown trips, or null if nothing was shown.
 export function showTripsOnMap(map: L.Map, tripIds: number[]): L.LatLngBounds | null {
     shownTripIds = [...tripIds];
-    return renderTripSelection(map, tripIds);
+    const bounds = renderTripSelection(map, tripIds);
+    if (bounds) {
+        highlightedTripIds.set([...tripIds]);
+    }
+    return bounds;
 }
 
 export function clearTripsFromMap(map: L.Map) {
@@ -298,6 +344,7 @@ export function clearTripsFromMap(map: L.Map) {
     }
     tripSelectionGroup = null;
     shownTripIds = [];
+    highlightedTripIds.set([]);
 }
 
 // Highlight a single trip as a navigation route, remembering its coordinates
