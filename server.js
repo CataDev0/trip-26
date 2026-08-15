@@ -225,7 +225,8 @@ app.post("/api/path", (req, res) => {
                 try {
                     insertTrip.run(tripId, firstPoint.timestamp);
                     actualTripIds.set(tripId, tripId);
-                } catch {
+                } catch (err) {
+                    if (err?.code !== "SQLITE_CONSTRAINT_PRIMARYKEY") throw err;
                     // AUTOINCREMENT already handed out this id — allocate a fresh one
                     const result = db.prepare(
                         "INSERT INTO trips (started_at) VALUES (?)",
