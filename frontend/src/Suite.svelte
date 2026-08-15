@@ -59,6 +59,8 @@
             // No auth, show login modal
             window.dispatchEvent(new CustomEvent("require-login"));
         }
+
+        window.addEventListener("logged-out", onLoggedOut);
     });
 
     const onZoomEnd = () => {
@@ -72,8 +74,11 @@
         }
     };
 
-    // The map is a singleton that persists across views — remove everything
-    // this view registered (Svelte ignores onMount return values)
+    // Reload map data after logging out
+    const onLoggedOut = async () => {
+        await loadData(map);
+    };
+
     onDestroy(() => {
         if (tracker) {
             tracker.stopTracking();
@@ -86,6 +91,7 @@
             "visibilitychange",
             tracker.handleVisibilityChange,
         );
+        window.removeEventListener("logged-out", onLoggedOut);
     });
 
     async function findAttractions() {

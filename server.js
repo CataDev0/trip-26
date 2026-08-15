@@ -30,8 +30,7 @@ app.set("trust proxy", Number(process.env.TRUST_PROXY || 0));
 if (process.env.CORS_ORIGINS) {
     app.use(cors({ origin: process.env.CORS_ORIGINS.split(",") }));
 }
-app.use(express.json({ limit: "1mb" }));
-
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "25mb" }));
 // Explicit allowlist of public GET endpoints. Everything else under /api
 // requires HTTP Basic auth — fail closed, no heuristics.
 const PUBLIC_GET_PATHS = new Set([
@@ -43,22 +42,24 @@ const PUBLIC_GET_PATHS = new Set([
     "/api/visitors",
 ]);
 
+// True when the request carries valid Basic auth credentials — used both by
+// the middleware and by public GET handlers that serve extra data when authed
+function isAuthenticatedRequest(req) {
+    const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
+    const [login, password] = Buffer.from(b64auth, "base64")
+        .toString()
+        .split(":");
+
+    return login === ADMIN_USERNAME && password === ADMIN_PASSWORD;
+}
+
 // Simple Basic Authentication Middleware
 app.use((req, res, next) => {
     const isApi = req.path.startsWith("/api/");
     const isPreflight = req.method === "OPTIONS";
     const isPublicGet = isApi && req.method === "GET" && PUBLIC_GET_PATHS.has(req.path);
 
-    if (!isApi || isPreflight || isPublicGet) {
-        return next();
-    }
-
-    const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
-    const [login, password] = Buffer.from(b64auth, "base64")
-        .toString()
-        .split(":");
-
-    if (login === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+    if (!isApi || isPreflight || isPublicGet || isAuthenticatedRequest(req)) {
         return next();
     }
 
@@ -145,12 +146,20 @@ if (count.count === 0) {
 
 // API Endpoints
 
-// Get predefined locations
+// Get predefined locations — locations belonging to hidden trips are only
+// included for authenticated requests
 app.get("/api/locations", (req, res) => {
     try {
-        const locations = db
-            .prepare("SELECT id, name, lat, lng, trip_id FROM locations")
-            .all();
+        const locations = isAuthenticatedRequest(req)
+            ? db
+                .prepare("SELECT id, name, lat, lng, trip_id FROM locations")
+                .all()
+            : db
+                .prepare(
+                    `SELECT id, name, lat, lng, trip_id FROM locations
+                     WHERE trip_id IS NULL OR trip_id NOT IN (SELECT id FROM trips WHERE hidden = 1)`,
+                )
+                .all();
         res.json(locations);
     } catch {
         res.status(500).json({ error: "Could not load locations" });
@@ -254,18 +263,41 @@ app.post("/api/path", (req, res) => {
     }
 });
 
-// Get the full GPS path (optionally filtered to a single trip)
+// Get the full GPS path (optionally filtered to a single trip).
+// Points of hidden trips are only included for authenticated requests.
 app.get("/api/path", (req, res) => {
     const { trip_id } = req.query;
-    const pathData = trip_id !== undefined
-        ? db
+    const includeHidden = isAuthenticatedRequest(req);
+
+    let pathData;
+    if (trip_id !== undefined) {
+        pathData = db
             .prepare("SELECT * FROM gps_path WHERE trip_id = ? ORDER BY timestamp ASC")
-            .all(trip_id)
-        : db
+            .all(trip_id);
+        if (!includeHidden) {
+            const trip = db.prepare("SELECT hidden FROM trips WHERE id = ?").get(trip_id);
+            if (trip && trip.hidden) {
+                pathData = [];
+            }
+        }
+    } else if (includeHidden) {
+        pathData = db
             .prepare("SELECT * FROM gps_path ORDER BY timestamp ASC")
             .all();
-    // Data only changes while actively tracking; lets browsers skip re-fetching
+    } else {
+        pathData = db
+            .prepare(
+                `SELECT * FROM gps_path
+                 WHERE trip_id IS NULL OR trip_id NOT IN (SELECT id FROM trips WHERE hidden = 1)
+                 ORDER BY timestamp ASC`,
+            )
+            .all();
+    }
+
+    // Data only changes while actively tracking; lets browsers skip re-fetching.
+    // Vary on Authorization so authed responses are never served from the public cache
     res.set("Cache-Control", "public, max-age=30");
+    res.set("Vary", "Authorization");
     res.json(pathData);
 });
 
@@ -310,17 +342,20 @@ app.put("/api/path", (req, res) => {
     }
 });
 
-// Get all trips. Include ?trashed=true to list soft-deleted trips instead
+// Get all trips. Include ?trashed=true to list soft-deleted trips instead.
+// Hidden trips are only included for authenticated requests.
 app.get("/api/trips", (req, res) => {
     try {
         const { trashed } = req.query;
+        const includeHidden = isAuthenticatedRequest(req);
         const trips = db
             .prepare(
                 `
-                SELECT t.id, t.started_at, t.ended_at, t.name, t.deleted_at,
+                SELECT t.id, t.started_at, t.ended_at, t.name, t.deleted_at, t.hidden,
                        (SELECT COUNT(*) FROM gps_path p WHERE p.trip_id = t.id) AS point_count
                 FROM trips t
                 WHERE ${trashed === "true" ? "t.deleted_at IS NOT NULL" : "t.deleted_at IS NULL"}
+                  AND ${includeHidden ? "1=1" : "(t.hidden IS NULL OR t.hidden = 0)"}
                 ORDER BY t.started_at DESC
                 `,
             )
@@ -361,6 +396,26 @@ app.put("/api/trips/:id", (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Could not update trip" });
+    }
+});
+
+// Hide a trip from public viewing (or show it again)
+app.post("/api/trips/:id/hidden", (req, res) => {
+    try {
+        const { hidden } = req.body;
+        if (typeof hidden !== "boolean") {
+            return res.status(400).json({ error: "Missing hidden (boolean)" });
+        }
+
+        const result = db
+            .prepare("UPDATE trips SET hidden = ? WHERE id = ?")
+            .run(hidden ? 1 : 0, req.params.id);
+        if (result.changes === 0) return res.status(404).json({ error: "Trip not found" });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not update trip visibility" });
     }
 });
 
@@ -575,7 +630,8 @@ app.delete("/api/path/splice", (req, res) => {
     }
 });
 
-// Send last GPS point for live tracking
+// Send last GPS point for live tracking — hidden when the active trip is
+// hidden and the request is unauthenticated
 app.get("/api/live-tracking", (req, res) => {
     if (!Utils.isLiveTracking) {
         return res.status(404).json({ error: "Live Tracking is not available" });
@@ -583,9 +639,17 @@ app.get("/api/live-tracking", (req, res) => {
 
     try {
         const lastPoint = db
-            .prepare("SELECT lat, lng FROM gps_path ORDER BY timestamp DESC LIMIT 1")
+            .prepare(
+                `SELECT p.lat, p.lng, t.hidden AS trip_hidden
+                 FROM gps_path p
+                 LEFT JOIN trips t ON t.id = p.trip_id
+                 ORDER BY p.timestamp DESC LIMIT 1`,
+            )
             .get();
         if (lastPoint) {
+            if (lastPoint.trip_hidden && !isAuthenticatedRequest(req)) {
+                return res.status(404).json({ error: "Live Tracking is not available" });
+            }
             res.json({ lat: lastPoint.lat, lng: lastPoint.lng });
         } else {
             res.status(404).json({ error: "Live Tracking last point not available" });

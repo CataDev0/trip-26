@@ -8,6 +8,9 @@ export interface Trip {
     name?: string | null;
     deleted_at?: string | null;
     point_count?: number;
+    // 1 = hidden
+    // 0 = public (or null/undefined)
+    hidden?: number | null;
 }
 
 export const gpsPath = writable<PathPoint[]>([]);

@@ -159,6 +159,15 @@ h1 {
   cursor: pointer;
 }
 
+.hidden-trips-indicator {
+  font-size: 0.75rem;
+  color: #555;
+  margin-left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .location-item {
   padding: 12px 10px;
   border-bottom: 1px solid #eee;

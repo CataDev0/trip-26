@@ -6,6 +6,7 @@
         ChevronLeft,
         Download,
         Eye,
+        EyeOff,
         MapPin,
         Navigation,
         Pencil,
@@ -25,8 +26,10 @@
         purgeTrips,
         renameTrip,
         restoreTrips,
+        setTripHidden,
         trashTrips,
     } from "../helpers/trips";
+    import { clearAuth, isLoggedIn } from "../helpers/auth";
 
     export let sidebarExpanded: boolean = false;
 
@@ -42,6 +45,7 @@
     let sortMode: SortMode = "newest";
     let showTrash: boolean = false;
     let tripsError: boolean = false;
+    let hasAuth: boolean = false;
 
     const SORT_MODES: { mode: SortMode; label: string }[] = [
         { mode: "newest", label: "Newest" },
@@ -98,6 +102,7 @@
 
     onMount(() => {
         loadTrips();
+        isLoggedIn().then((loggedIn: boolean) => (hasAuth = loggedIn));
     });
 
     function cycleSort() {
@@ -161,6 +166,24 @@
         }
     }
 
+    async function toggleHidden(trip: Trip) {
+        try {
+            await setTripHidden(trip.id, !trip.hidden);
+        } catch (err) {
+            console.error("Failed to update trip visibility", err);
+            alert("Failed to update trip visibility.");
+        }
+    }
+
+    // Remove stored credentials, stop sending Auth header
+    // then refresh to the public dataset
+    async function logout() {
+        await clearAuth();
+        hasAuth = false;
+        await loadTrips();
+        window.dispatchEvent(new CustomEvent("logged-out"));
+    }
+
     async function shareTrip(trip: Trip) {
         const text =
             `Trip: ${tripName(trip)}\n` +
@@ -217,6 +240,11 @@
     {#if !showTrash}
         <div class="sidebar-header">
             Trips
+            {#if hasAuth}
+                <span class="hidden-trips-indicator" title="Hidden trips are visible to you because you are logged in.">
+                    Logged in <button class="btn btn-sm btn-secondary" on:click={logout}>Log out</button>
+                </span>
+            {/if}
             <button
                 class="sidebar-toggle-btn"
                 on:click={() => (sidebarExpanded = false)}>✕</button
@@ -267,7 +295,17 @@
                         on:click|stopPropagation={() => toggleSelect(trip.id)}
                     />
                     <div class="trip-info">
-                        <div class="trip-name">{tripName(trip)}</div>
+                        <div class="trip-name">
+                            {tripName(trip)}
+                            {#if trip.hidden}
+                                <span title="Hidden from public">
+                                    <EyeOff
+                                        size="12"
+                                        style="vertical-align: -2px; margin-left: 4px; color: #ff8c00;"
+                                    />
+                                </span>
+                            {/if}
+                        </div>
                         <div class="trip-meta">
                             {formatDate(trip.started_at)}
                             {#if (trip.point_count ?? 0) > 0}
@@ -284,6 +322,18 @@
                         <button title="Show on map" on:click={() => dispatch("showTrip", trip.id)}>
                             <MapPin size="14" />
                         </button>
+                        {#if hasAuth}
+                            <button
+                                title={trip.hidden ? "Show publicly" : "Hide from public"}
+                                on:click={() => toggleHidden(trip)}
+                            >
+                                {#if trip.hidden}
+                                    <EyeOff color="red" size="14" />
+                                {:else}
+                                    <Eye size="14" />
+                                {/if}
+                            </button>
+                        {/if}
                         <button title="Share" on:click={() => shareTrip(trip)}>
                             <Share2 size="14" />
                         </button>

@@ -55,6 +55,11 @@ export async function clearAuth() {
     await removeStoredToken();
 }
 
+export async function isLoggedIn(): Promise<boolean> {
+    const header = await getAuthHeader();
+    return !!header.Authorization;
+}
+
 export async function authFetch(url: string, options: RequestInit = {}) {
     const authHeader = await getAuthHeader();
     const headers = new Headers(options.headers);

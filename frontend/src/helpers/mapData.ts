@@ -1,5 +1,6 @@
 import L from "leaflet";
 import { API_BASE } from "./Constants";
+import { authFetch } from "./auth";
 import { locations, renderLocations, updateMarkerPopup, visitedIds } from "./locationMarkers";
 import { renderPath, toLatLngPath } from "./tripPath";
 import { gpsPath, pathDataReady } from "../stores/tripStore";
@@ -29,10 +30,12 @@ export interface MapBootstrapData {
 }
 
 export async function loadMapBootstrapData(): Promise<MapBootstrapData> {
+    // authFetch attaches credentials when available so logged-in users also
+    // see trips hidden from the public (endpoints stay public for everyone)
     const [locationsRes, visitedRes, pathRes] = await Promise.all([
-        fetch(API_BASE + "/api/locations"),
-        fetch(API_BASE + "/api/visited"),
-        fetch(API_BASE + "/api/path"),
+        authFetch(API_BASE + "/api/locations"),
+        authFetch(API_BASE + "/api/visited"),
+        authFetch(API_BASE + "/api/path"),
     ]);
 
     if (!locationsRes.ok) {

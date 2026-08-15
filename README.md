@@ -42,9 +42,13 @@ Trips can be hidden from public, and deleted entirely.
 | `GET /api/locations`, `GET /api/visited`, `GET /api/visitors` | Public | Locations / visited marks / visitor count |
 | `GET /api/live-tracking` | Public | Last known live position |
 | `GET /api/speed-limit` | Login required | HERE speed-limit proxy (paid API key) |
+| `POST /api/trips/:id/hidden` | Login required | Toggle trip hidden from public |
 | `POST/PUT/DELETE` on any `/api/*` route | Login required | All writes (points, trips, locations, splice) |
 
-Unknown `/api/*` routes return 404, never the web app.
+Unknown `/api/*` routes return 404, never the web app. Public GETs exclude
+trips (and their GPS points, locations, and live position) that are hidden
+from public viewing — hidden trips are only served when the request is
+authenticated.
 
 ## Setup Guide
 
@@ -68,6 +72,12 @@ Unknown `/api/*` routes return 404, never the web app.
     nano .env
     ```
 
+    **Note:** `ADMIN_USERNAME` and `ADMIN_PASSWORD` are required
+    ```bash
+    ADMIN_USERNAME=
+    ADMIN_PASSWORD= 
+    ```
+
     **Optionally:** Add [HERE](https://docs.here.com/geocoding-and-search/docs/get-started-with-here-geocoding-and-search-api-v7) API key for speed limit functionality - Using the Geocoding and Search API
 
     **Other optional variables:**
@@ -84,9 +94,10 @@ Unknown `/api/*` routes return 404, never the web app.
     RATE_LIMIT_PUBLIC_PER_MIN=120
     RATE_LIMIT_WRITE_PER_MIN=30
     RATE_LIMIT_SPEED_PER_MIN=30
-    ```
 
-    **Note:** `ADMIN_USERNAME` and `ADMIN_PASSWORD` are required — the server refuses to start without them.
+    # Default is 25mb - Required for /api/path endpoint which can use several mbs when replacing entire trip
+    JSON_BODY_LIMIT=25
+    ```
 
 1. ### Back up the database (before deploying)
 

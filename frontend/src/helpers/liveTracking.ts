@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import L from "leaflet";
 import { API_BASE } from "./Constants";
+import { authFetch } from "./auth";
 import { isLiveTracking, liveTrackingLayer } from "../stores/appStore";
 
 // The purpose of the class is to manage the local client state when
@@ -73,13 +74,17 @@ export class LiveTracking {
     }
 
     static async getLiveTracking() {
-        return fetch(API_BASE + "/api/live-tracking")
-            .then((res) => (res.ok ? res.json() : null))
-            .then((data) => {
-                if (data && data.lat && data.lng) {
-                    return { lat: data.lat, lng: data.lng };
-                }
-                return null;
-            });
+        try {
+            // authFetch so logged-in users can follow live tracking of hidden trips
+            const res = await authFetch(API_BASE + "/api/live-tracking");
+            const data = await res.json();
+            if (data && data.lat && data.lng) {
+                return { lat: data.lat, lng: data.lng };
+            }
+            return null;
+        } catch {
+            // Not live (404), hidden trip, or offline — treat as unavailable
+            return null;
+        }
     }
 }

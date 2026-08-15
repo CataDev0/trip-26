@@ -2,11 +2,13 @@ import { API_BASE } from "./Constants";
 import { authFetch } from "./auth";
 import { trashedTrips, trips, type Trip } from "../stores/tripStore";
 
-// Load active trips and trashed trips from the server
+// Load active trips and trashed trips from the server.
+// authFetch attaches credentials when available so logged-in users also
+// receive trips that are hidden from the public
 export async function fetchTrips(): Promise<void> {
     const [activeRes, trashRes] = await Promise.all([
-        fetch(API_BASE + "/api/trips"),
-        fetch(API_BASE + "/api/trips?trashed=true"),
+        authFetch(API_BASE + "/api/trips"),
+        authFetch(API_BASE + "/api/trips?trashed=true"),
     ]);
 
     if (!activeRes.ok || !trashRes.ok) {
@@ -35,6 +37,16 @@ export async function renameTrip(id: number, name: string): Promise<void> {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
+    });
+    await fetchTrips();
+}
+
+// Hide a trip from public viewing (or show it again)
+export async function setTripHidden(id: number, hidden: boolean): Promise<void> {
+    await authFetch(API_BASE + `/api/trips/${id}/hidden`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden }),
     });
     await fetchTrips();
 }
@@ -78,14 +90,15 @@ function formatDate(value?: string | null): string {
     return date.toLocaleString();
 }
 
-// Download all trips (and their GPS points) as a JSON file
+// Download all trips (and their GPS points) as a JSON file.
+// authFetch so the export includes trips hidden from the public
 export async function exportTrips(): Promise<void> {
-    const pathRes = await fetch(API_BASE + "/api/path");
+    const pathRes = await authFetch(API_BASE + "/api/path");
     if (!pathRes.ok) throw new Error("Failed to load path data");
     const pathData: { trip_id?: number; lat: number; lng: number; timestamp?: string; current_speed?: number | null }[] =
         await pathRes.json();
 
-    const activeTrips = await fetch(API_BASE + "/api/trips").then((res) => res.json());
+    const activeTrips = await authFetch(API_BASE + "/api/trips").then((res) => res.json());
 
     const pointsByTrip = new Map<number, typeof pathData>();
     pathData.forEach((point) => {

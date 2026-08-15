@@ -62,7 +62,14 @@
         // Run once immediately, then schedule based on current state
         await liveTracking.updateLiveTracking();
         scheduleNextUpdate();
+
+        window.addEventListener("logged-out", onLoggedOut);
     });
+
+    // Reload map data after logging out
+    const onLoggedOut = async () => {
+        await loadData(map);
+    };
 
     async function findAttractions() {
         findingAttractions = true;
@@ -111,6 +118,7 @@
 
     onDestroy(() => {
         clearTimeout(trackingTimeout);
+        window.removeEventListener("logged-out", onLoggedOut);
     });
 </script>
 

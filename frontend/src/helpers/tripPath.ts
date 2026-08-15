@@ -3,7 +3,7 @@ import type { PathPoint } from "./mapData";
 import { gpsPath, highlightedTripIds } from "../stores/tripStore";
 import { routeCoords } from "../stores/appStore";
 import { get } from "svelte/store";
-import { MAX_SEGMENTS_PER_TRIP } from "./Constants";
+import { MAX_SEGMENTS_PER_TRIP, MAX_TRACE_POINTS, MIN_TRACE_TOLERANCE_PX } from "./Constants";
 import { getLayerControl } from "./sharedMap";
 import { fillSpeedGaps, speedColor, timeColor } from "./traceColor";
 
@@ -123,22 +123,23 @@ export function renderTripPath(
         if (trip.length < 2) return;
 
         // Map raw points to their index so segments can look up
-        // speed / fraction along the trip (simplifyTripByZoom returns
-        // the same object references, so lookups work).
+        // speed / fraction along the trip (simplification returns the same
+        // object references, so lookups work).
         const rawIndex = new Map<PathPoint, number>();
         trip.forEach((p, i) => rawIndex.set(p, i));
 
         // null => legacy trip with no speed data => time-based gradient
         const speeds = fillSpeedGaps(trip.map((p) => p.current_speed ?? null));
 
-        const simplified = simplifyTripByZoom(map, trip, 3);
+        const simplified = simplifyTripByBudget(map, trip);
         if (simplified.length < 2) return;
 
         const n = simplified.length;
-        const stride = Math.max(1, Math.ceil((n - 1) / MAX_SEGMENTS_PER_TRIP));
 
-        for (let start = 0; start < n - 1; start += stride) {
-            const end = Math.min(start + stride, n - 1);
+        // Segments connect adjacent simplified points — the budget search above
+        // already picked the best-representing points for this zoom
+        for (let start = 0; start < n - 1; start += 1) {
+            const end = start + 1;
             const a = simplified[start];
             const b = simplified[end];
             if (a.lat === b.lat && a.lng === b.lng) continue;
@@ -288,7 +289,7 @@ function renderTripSelection(map: L.Map, tripIds: number[]): L.LatLngBounds | nu
 
     grouped.forEach((tripPoints) => {
         if (tripPoints.length < 2) return;
-        const simplified = simplifyTripByZoom(map, tripPoints, 3);
+        const simplified = simplifyTripByTolerance(map, tripPoints, 3);
         if (simplified.length < 2) return;
         addHighlightPolyline(tripSelectionGroup!, toLatLngPath(simplified));
 
@@ -374,22 +375,6 @@ export function simplifyTrip(map: L.Map, points: { lat: number; lng: number }[],
     });
 }
 
-function simplifyTripByZoom(
-    map: L.Map,
-    trip: PathPoint[],
-    pixelTolerance = 3
-): PathPoint[] {
-    if (trip.length <= 2) return trip;
-
-    // Project to screen pixels at current zoom
-    const points = trip.map((p) => ({
-        original: p,
-        px: map.project([p.lat, p.lng], map.getZoom()),
-    }));
-
-    return dp(points, pixelTolerance).map((p) => p.original);
-}
-
 function perpendicularDistance(p: L.Point, a: L.Point, b: L.Point): number {
     if (a.equals(b)) return p.distanceTo(a);
     const num = Math.abs(
@@ -399,21 +384,97 @@ function perpendicularDistance(p: L.Point, a: L.Point, b: L.Point): number {
     return num / den;
 }
 
-function dp(pts: PointsWithPx, tol: number): PointsWithPx {
+// Iterative Douglas-Peucker. When maxPoints is given, aborts as soon as more
+// than maxPoints points would be kept and returns null — this makes budget
+// searches cheap because oversized runs stop early
+function dpIterative(pts: PointsWithPx, tol: number, maxPoints?: number): PointsWithPx | null {
     if (pts.length <= 2) return pts;
-    let maxDist = 0;
-    let index = 0;
-    for (let i = 1; i < pts.length - 1; i++) {
-        const d = perpendicularDistance(pts[i].px, pts[0].px, pts[pts.length - 1].px);
-        if (d > maxDist) {
-            maxDist = d;
-            index = i;
+
+    const kept = new Set<PointsWithPx[number]>();
+    kept.add(pts[0]);
+    kept.add(pts[pts.length - 1]);
+
+    const stack: Array<[number, number]> = [[0, pts.length - 1]];
+    while (stack.length > 0) {
+        const [first, last] = stack.pop()!;
+        let maxDist = tol;
+        let index = -1;
+        for (let i = first + 1; i < last; i++) {
+            const d = perpendicularDistance(pts[i].px, pts[first].px, pts[last].px);
+            if (d > maxDist) {
+                maxDist = d;
+                index = i;
+            }
+        }
+        if (index !== -1) {
+            kept.add(pts[index]);
+            if (maxPoints !== undefined && kept.size > maxPoints) {
+                return null;
+            }
+            stack.push([first, index]);
+            stack.push([index, last]);
         }
     }
-    if (maxDist > tol) {
-        const left = dp(pts.slice(0, index + 1), tol);
-        const right = dp(pts.slice(index), tol);
-        return [...left.slice(0, -1), ...right];
+
+    return pts.filter((p) => kept.has(p));
+}
+
+function projectToPixels(map: L.Map, trip: PathPoint[]): PointsWithPx {
+    return trip.map((p) => ({
+        original: p,
+        px: map.project([p.lat, p.lng], map.getZoom()),
+    }));
+}
+
+// Simplify with a fixed pixel tolerance — keeps whatever fits the tolerance
+function simplifyTripByTolerance(
+    map: L.Map,
+    trip: PathPoint[],
+    pixelTolerance: number,
+): PathPoint[] {
+    if (trip.length <= 2) return trip;
+
+    const result = dpIterative(projectToPixels(map, trip), pixelTolerance);
+    return result ? result.map((p) => p.original) : trip;
+}
+
+// Simplify a trip for the speed-colored traces. The point budget scales with
+// the trip's pixel size at the current zoom, so pixel-level detail stays
+// roughly constant at every zoom. A fixed budget instead renders the same
+// coarse shape at all zooms: fine far out, but ruinously low-detail zoomed in.
+function simplifyTripByBudget(map: L.Map, trip: PathPoint[]): PathPoint[] {
+    if (trip.length <= 2) return trip;
+
+    const points = projectToPixels(map, trip);
+
+    // A trip N pixels across needs at most ~N/6 vertices to stay within a few
+    // pixels of the true path
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const { px } of points) {
+        if (px.x < minX) minX = px.x;
+        if (px.x > maxX) maxX = px.x;
+        if (px.y < minY) minY = px.y;
+        if (px.y > maxY) maxY = px.y;
     }
-    return [pts[0], pts[pts.length - 1]];
+    const diagonalPx = Math.hypot(maxX - minX, maxY - minY);
+    const maxPoints = Math.min(
+        MAX_TRACE_POINTS,
+        Math.max(MAX_SEGMENTS_PER_TRIP, Math.ceil(diagonalPx / 6)),
+    );
+
+    if (trip.length <= maxPoints) return trip;
+
+    let tolerance = MIN_TRACE_TOLERANCE_PX;
+    while (true) {
+        const result = dpIterative(points, tolerance, maxPoints);
+        if (result) {
+            return result.map((p) => p.original);
+        }
+        tolerance *= 2;
+        if (tolerance > 1e6) {
+            // Degenerate input — fall back to an even sample
+            const stride = Math.ceil(trip.length / maxPoints);
+            return trip.filter((_, i) => i % stride === 0 || i === trip.length - 1);
+        }
+    }
 }
