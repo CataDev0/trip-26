@@ -15,4 +15,11 @@ db.backup(destPath)
     .catch((err) => {
         console.error("Backup failed:", err);
         process.exitCode = 1;
+    })
+    .finally(() => {
+        try {
+            db.close();
+        } catch {
+            // ignore
+        }
     });
