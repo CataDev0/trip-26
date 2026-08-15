@@ -477,6 +477,9 @@ app.post("/api/trips/purge", (req, res) => {
             db.prepare(
                 `DELETE FROM locations WHERE trip_id IN (${placeholders})`,
             ).run(...ids);
+            db.prepare(
+                "DELETE FROM visited_locations WHERE id NOT IN (SELECT id FROM locations)",
+            ).run();
             return db
                 .prepare(`DELETE FROM trips WHERE id IN (${placeholders})`)
                 .run(...ids).changes;
