@@ -41,7 +41,7 @@
       }
   });
 
-  // Svelte ignores onMount return values — clean up intervals in onDestroy
+  // Clean up the visitor count interval when the component is destroyed
   onDestroy(() => {
       if (visitorInterval !== null) {
           clearInterval(visitorInterval);
