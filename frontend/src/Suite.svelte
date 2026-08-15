@@ -1,15 +1,13 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import L from "leaflet";
 
     import TopBar from "./components/TopBar.svelte";
     import SideBar from "./components/SideBar.svelte";
     import { loadData } from "./helpers/mapData";
-    import type { LeafletWindow } from "./typed/Typed";
     import { Gps } from "./helpers/gps";
-    import { markVisited } from "./helpers/locationMarkers";
     import { MIN_ATTRACTIONS_ZOOM } from "./helpers/Constants";
-    import { fetchAndRenderAttractions, saveAttraction } from "./helpers/attractions";
+    import { fetchAndRenderAttractions } from "./helpers/attractions";
     import { getAuthHeader } from "./helpers/auth";
     import { getSharedMap, reRenderPathBasedOnZoom } from "./helpers/sharedMap";
     import { showTripRoute, showTripsOnMap } from "./helpers/tripPath";
@@ -36,28 +34,18 @@
         
         currentZoom = map.getZoom() || 13;
 
-        map.on("zoomend", () => {
-            reRenderPathBasedOnZoom(map);
-            currentZoom = map.getZoom();
-        });
+        // Named handlers so onDestroy can remove them from the shared map
+        map.on("zoomend", onZoomEnd);
+        map.on("dragstart", onDragStart);
 
-        map.on("dragstart", () => {
-            if (get(autoFollow)) {
-                autoFollow.update(() => false);
-            }
-        });
-        
         // Append the persistent map container to this specific view's map wrapper
+        // eslint-disable-next-line svelte/no-dom-manipulating -- the shared map container is adopted into this view by design
         mapContainer.appendChild(container);
 
         // Ensure Leaflet resizes properly when adopted by the new parent
         setTimeout(() => {
             map.invalidateSize();
         }, 10);
-
-        // Create global function for popup buttons
-        (window as LeafletWindow).markVisited = (id) => markVisited(id);
-        (window as LeafletWindow).saveAttraction = (map, name, lat, lng) => saveAttraction(map, name, lat, lng);
 
         document.addEventListener(
             "visibilitychange",
@@ -71,14 +59,33 @@
             // No auth, show login modal
             window.dispatchEvent(new CustomEvent("require-login"));
         }
-        return () => {
-            document.removeEventListener(
-                "visibilitychange",
-                tracker.handleVisibilityChange,
-            );
-            delete (window as LeafletWindow).markVisited;
-            delete (window as LeafletWindow).saveAttraction;
-        };
+    });
+
+    const onZoomEnd = () => {
+        reRenderPathBasedOnZoom(map);
+        currentZoom = map.getZoom();
+    };
+
+    const onDragStart = () => {
+        if (get(autoFollow)) {
+            autoFollow.update(() => false);
+        }
+    };
+
+    // The map is a singleton that persists across views — remove everything
+    // this view registered (Svelte ignores onMount return values)
+    onDestroy(() => {
+        if (tracker) {
+            tracker.stopTracking();
+        }
+        if (map) {
+            map.off("zoomend", onZoomEnd);
+            map.off("dragstart", onDragStart);
+        }
+        document.removeEventListener(
+            "visibilitychange",
+            tracker.handleVisibilityChange,
+        );
     });
 
     async function findAttractions() {
@@ -176,8 +183,6 @@
         on:routeGuidance={(e) => routeGuidance(e.detail)}
     />
 
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
     <div
         class="map"
         bind:this={mapContainer}

@@ -55,14 +55,14 @@ export async function clearAuth() {
     await removeStoredToken();
 }
 
-export async function authFetch(url: string, options: any = {}) {
-    const headers = await getAuthHeader();
-    options.headers = {
-        ...options.headers,
-        ...headers
-    };
+export async function authFetch(url: string, options: RequestInit = {}) {
+    const authHeader = await getAuthHeader();
+    const headers = new Headers(options.headers);
+    if (authHeader.Authorization) {
+        headers.set("Authorization", authHeader.Authorization);
+    }
 
-    const res = await fetch(url, options);
+    const res = await fetch(url, { ...options, headers });
     if (res.status === 401) {
         if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("require-login"));

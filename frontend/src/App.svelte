@@ -37,6 +37,7 @@
         });
 
         // Append the persistent map container to this specific view's map wrapper
+        // eslint-disable-next-line svelte/no-dom-manipulating -- the shared map container is adopted into this view by design
         mapContainer.appendChild(container);
 
         // Ensure Leaflet resizes properly when adopted by the new parent
@@ -159,8 +160,6 @@
         on:routeGuidance={(e) => routeGuidance(e.detail)}
     />
 
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
         class="map"
         bind:this={mapContainer}

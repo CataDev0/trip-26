@@ -1,42 +1,94 @@
 require("dotenv").config({ "quiet": true });
+
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
+    console.error(
+        "Missing ADMIN_USERNAME or ADMIN_PASSWORD in .env — refusing to start with insecure defaults.",
+    );
+    process.exit(1);
+}
+if (ADMIN_PASSWORD.length < 8) {
+    console.warn("WARNING: ADMIN_PASSWORD is shorter than 8 characters.");
+}
+if (ADMIN_PASSWORD === ADMIN_USERNAME) {
+    console.warn("WARNING: ADMIN_PASSWORD equals ADMIN_USERNAME.");
+}
+
 const express = require("express");
 const cors = require("cors");
 const sqlite = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
+const rateLimit = require("express-rate-limit");
 const { Utils } = require("./Utils.mjs");
 const { initializeDatabase } = require("./Database.mjs");
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.set("trust proxy", Number(process.env.TRUST_PROXY || 0));
+
+if (process.env.CORS_ORIGINS) {
+    app.use(cors({ origin: process.env.CORS_ORIGINS.split(",") }));
+}
+app.use(express.json({ limit: "1mb" }));
+
+// Explicit allowlist of public GET endpoints. Everything else under /api
+// requires HTTP Basic auth — fail closed, no heuristics.
+const PUBLIC_GET_PATHS = new Set([
+    "/api/path",
+    "/api/trips",
+    "/api/locations",
+    "/api/visited",
+    "/api/live-tracking",
+    "/api/visitors",
+]);
 
 // Simple Basic Authentication Middleware
 app.use((req, res, next) => {
-    const isHome = req.path === "/";
-    const isFile = req.path.includes(".");
-    const isPublicApi = req.path.startsWith("/api/") && req.method === "GET";
+    const isApi = req.path.startsWith("/api/");
     const isPreflight = req.method === "OPTIONS";
+    const isPublicGet = isApi && req.method === "GET" && PUBLIC_GET_PATHS.has(req.path);
 
-    // Allow unauthenticated access to the homepage, static files, GET API endpoints, and preflight requests
-    if (!isHome && !isFile && !isPublicApi && !isPreflight) {
-        const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
-        const [login, password] = Buffer.from(b64auth, "base64")
-            .toString()
-            .split(":");
-
-        const expectedUser = process.env.ADMIN_USERNAME || "admin";
-        const expectedPass = process.env.ADMIN_PASSWORD || "password";
-
-        if (login === expectedUser && password === expectedPass) {
-            return next();
-        }
-
-        res.set("WWW-Authenticate", "Basic realm=\"Authentication Required\"");
-        res.status(401).send("Authentication required.");
-    } else {
-        next();
+    if (!isApi || isPreflight || isPublicGet) {
+        return next();
     }
+
+    const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
+    const [login, password] = Buffer.from(b64auth, "base64")
+        .toString()
+        .split(":");
+
+    if (login === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+        return next();
+    }
+
+    res.set("WWW-Authenticate", "Basic realm=\"Authentication Required\"");
+    res.status(401).send("Authentication required.");
+});
+
+// Rate limiting: one tier for public GETs, one for authenticated writes
+const publicGetLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: Number(process.env.RATE_LIMIT_PUBLIC_PER_MIN) || 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+const writeLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: Number(process.env.RATE_LIMIT_WRITE_PER_MIN) || 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+const speedLimitLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: Number(process.env.RATE_LIMIT_SPEED_PER_MIN) || 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+app.use("/api", (req, res, next) => {
+    const limiter = req.method === "GET" ? publicGetLimiter : writeLimiter;
+    limiter(req, res, next);
 });
 
 app.use(express.static("public"));
@@ -59,7 +111,8 @@ app.get("/api/visitors", (req, res) => {
     res.json({ count: activeVisitors.size });
 });
 
-const db = sqlite("trip.db");
+const db = sqlite(process.env.TRIP_DB || "trip.db");
+db.pragma("foreign_keys = ON");
 
 // Initialize database
 initializeDatabase(db);
@@ -140,18 +193,36 @@ app.post("/api/path", (req, res) => {
         const insert = db.prepare(
             "INSERT INTO gps_path (lat, lng, trip_id, current_speed, timestamp) VALUES (?, ?, ?, ?, ?)"
         );
-        const insertOrIgnoreTrip = db.prepare(
-            "INSERT OR IGNORE INTO trips (id, started_at) VALUES (?, ?)"
+        const findTrip = db.prepare("SELECT id FROM trips WHERE id = ?");
+        const insertTrip = db.prepare(
+            "INSERT INTO trips (id, started_at) VALUES (?, ?)"
         );
         const updateEndedAt = db.prepare(
             "UPDATE trips SET ended_at = ? WHERE id = ? AND (ended_at IS NULL OR ended_at < ?)"
         );
 
+        // Client-generated trip ids (Date.now()) can collide with AUTOINCREMENT
+        // rowids — remap to the actual trip id used for this batch
         const runBatch = db.transaction((pts) => {
             const distinctTripIds = [...new Set(pts.map((p) => p.tripId))];
+            const actualTripIds = new Map();
+
             distinctTripIds.forEach((tripId) => {
+                if (findTrip.get(tripId)) {
+                    actualTripIds.set(tripId, tripId);
+                    return;
+                }
                 const firstPoint = pts.find((p) => p.tripId === tripId);
-                insertOrIgnoreTrip.run(tripId, firstPoint.timestamp);
+                try {
+                    insertTrip.run(tripId, firstPoint.timestamp);
+                    actualTripIds.set(tripId, tripId);
+                } catch {
+                    // AUTOINCREMENT already handed out this id — allocate a fresh one
+                    const result = db.prepare(
+                        "INSERT INTO trips (started_at) VALUES (?)",
+                    ).run(firstPoint.timestamp);
+                    actualTripIds.set(tripId, Number(result.lastInsertRowid));
+                }
             });
 
             const lastPointByTrip = new Map();
@@ -161,53 +232,74 @@ app.post("/api/path", (req, res) => {
                     const distance = Utils.haversineMeters(last.lat, last.lng, pt.lat, pt.lng);
                     if (distance < 3) continue;
                 }
-                insert.run(pt.lat, pt.lng, pt.tripId, pt.speed ?? null, pt.timestamp);
+                insert.run(pt.lat, pt.lng, actualTripIds.get(pt.tripId), pt.speed ?? null, pt.timestamp);
                 lastPointByTrip.set(pt.tripId, { lat: pt.lat, lng: pt.lng });
             }
 
             distinctTripIds.forEach((tripId) => {
                 const tripPoints = pts.filter((p) => p.tripId === tripId);
                 const latestTimestamp = tripPoints.reduce((max, p) => (p.timestamp > max ? p.timestamp : max), tripPoints[0].timestamp);
-                updateEndedAt.run(latestTimestamp, tripId, latestTimestamp);
+                updateEndedAt.run(latestTimestamp, actualTripIds.get(tripId), latestTimestamp);
             });
+
+            return actualTripIds;
         });
 
-        runBatch(points);
+        const actualTripIds = runBatch(points);
         Utils.resetLiveTrackTimer();
-        res.json({ success: true });
+        res.json({ success: true, tripIds: Object.fromEntries(actualTripIds) });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Could not save points" });
     }
 });
 
-// Get the full GPS path
+// Get the full GPS path (optionally filtered to a single trip)
 app.get("/api/path", (req, res) => {
-    const pathData = db
-        .prepare(
-            "SELECT * FROM gps_path ORDER BY timestamp ASC",
-        )
-        .all();
+    const { trip_id } = req.query;
+    const pathData = trip_id !== undefined
+        ? db
+            .prepare("SELECT * FROM gps_path WHERE trip_id = ? ORDER BY timestamp ASC")
+            .all(trip_id)
+        : db
+            .prepare("SELECT * FROM gps_path ORDER BY timestamp ASC")
+            .all();
+    // Data only changes while actively tracking; lets browsers skip re-fetching
+    res.set("Cache-Control", "public, max-age=30");
     res.json(pathData);
 });
 
-// Replace the full GPS path
+// Replace the full GPS path — preserves trip_id and current_speed where provided,
+// and backfills trip_id for new vertices from the nearest preceding point
 app.put("/api/path", (req, res) => {
     const points = req.body;
     if (!Array.isArray(points))
         return res.status(400).json({ error: "Points must be an array" });
 
     const insert = db.prepare(
-        "INSERT INTO gps_path (lat, lng, timestamp) VALUES (?, ?, ?)",
+        "INSERT INTO gps_path (lat, lng, timestamp, trip_id, current_speed) VALUES (?, ?, ?, ?, ?)",
     );
 
     try {
         db.transaction((pts) => {
             db.prepare("DELETE FROM gps_path").run();
+
+            let lastTripId = null;
             for (const pt of pts) {
                 if (pt.lat !== undefined && pt.lng !== undefined) {
-                    // Keep existing timestamp if provided, otherwise it will use default via sqlite although we pass undefined
-                    insert.run(pt.lat, pt.lng, pt.timestamp || new Date().toISOString());
+                    // Points without a trip_id (newly drawn vertices) inherit the
+                    // most recent trip_id seen so far in the batch
+                    const tripId = pt.trip_id ?? lastTripId;
+                    insert.run(
+                        pt.lat,
+                        pt.lng,
+                        pt.timestamp || new Date().toISOString(),
+                        tripId,
+                        pt.current_speed ?? null,
+                    );
+                    if (tripId !== null) {
+                        lastTripId = tripId;
+                    }
                 }
             }
         })(points);
@@ -245,8 +337,8 @@ app.post("/api/trips", (req, res) => {
     try {
         const { name } = req.body;
         const result = db
-            .prepare("INSERT INTO trips (name) VALUES (?)")
-            .run(name || "New Trip");
+            .prepare("INSERT INTO trips (name, started_at) VALUES (?, ?)")
+            .run(name || "New Trip", new Date().toISOString());
         res.json({ success: true, id: Number(result.lastInsertRowid) });
     } catch (error) {
         console.error(error);
@@ -283,9 +375,9 @@ app.delete("/api/trips", (req, res) => {
         const placeholders = ids.map(() => "?").join(",");
         const result = db
             .prepare(
-                `UPDATE trips SET deleted_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+                `UPDATE trips SET deleted_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
             )
-            .run(...ids);
+            .run(new Date().toISOString(), ...ids);
         res.json({ success: true, moved: result.changes });
     } catch (error) {
         console.error(error);
@@ -342,11 +434,17 @@ app.post("/api/trips/purge", (req, res) => {
     }
 });
 
-// Proxy route for HERE Speed Limit
-app.get("/api/speed-limit", async (req, res) => {
+// Proxy route for HERE Speed Limit — requires auth (paid API key, tracker only)
+app.get("/api/speed-limit", speedLimitLimiter, async (req, res) => {
     const { lat, lng } = req.query;
-    if (!lat || !lng)
-        return res.status(400).json({ error: "Missing lat or lng" });
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
+    if (
+        !Number.isFinite(latNum) || !Number.isFinite(lngNum) ||
+        latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180
+    ) {
+        return res.status(400).json({ error: "Missing or invalid lat or lng" });
+    }
 
     try {
         const apiKey = process.env.HERE_API_KEY;
@@ -355,11 +453,11 @@ app.get("/api/speed-limit", async (req, res) => {
         }
 
         const url = new URL("https://revgeocode.search.hereapi.com/v1/revgeocode");
-        url.searchParams.set("at", `${lat},${lng}`);
+        url.searchParams.set("at", `${latNum},${lngNum}`);
         url.searchParams.set("showNavAttributes", "speedLimits");
         url.searchParams.set("apikey", apiKey);
 
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
         const data = await response.json();
 
         let speedLimit = null;
@@ -370,32 +468,49 @@ app.get("/api/speed-limit", async (req, res) => {
         res.json({ speedLimit });
     } catch (error) {
         console.error("Speed limit proxy error:", error);
-        res.status(500).json({ error: "Failed to fetch speed limit" });
+        res.status(502).json({ error: "Failed to fetch speed limit" });
     }
 });
 
-// Update locations based on UI edits
+// Update locations based on UI edits — upserts each location so existing ids
+// (and the visited_locations references pointing at them) are preserved
 app.post("/api/locations", (req, res) => {
     try {
         const newLocations = req.body;
-        const insert = db.prepare(
-            "INSERT INTO locations (id, name, lat, lng, trip_id) VALUES (?, ?, ?, ?, ?)",
+        if (!Array.isArray(newLocations)) {
+            return res.status(400).json({ error: "Locations must be an array" });
+        }
+
+        const findLoc = db.prepare("SELECT id FROM locations WHERE id = ?");
+        const updateLoc = db.prepare(
+            "UPDATE locations SET name = ?, lat = ?, lng = ?, trip_id = ? WHERE id = ?",
+        );
+        const insertLoc = db.prepare(
+            "INSERT INTO locations (name, lat, lng, trip_id) VALUES (?, ?, ?, ?)",
         );
 
-        // Clear and insert
         db.transaction((locs) => {
-            db.prepare("DELETE FROM locations").run();
+            const keptIds = [];
             for (const loc of locs) {
-                if (loc.name && loc.lat !== undefined && loc.lng !== undefined) {
-                    // If it has an existing ID, keep it, else let sqlite generate one
-                    if (loc.id !== undefined) {
-                        insert.run(loc.id, loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
-                    } else {
-                        db.prepare(
-                            "INSERT INTO locations (name, lat, lng, trip_id) VALUES (?, ?, ?, ?)",
-                        ).run(loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
-                    }
+                if (!loc.name || loc.lat === undefined || loc.lng === undefined) {
+                    continue;
                 }
+
+                if (loc.id !== undefined && loc.id !== null && findLoc.get(loc.id)) {
+                    updateLoc.run(loc.name, loc.lat, loc.lng, loc.trip_id ?? null, loc.id);
+                    keptIds.push(loc.id);
+                } else {
+                    const result = insertLoc.run(loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
+                    keptIds.push(Number(result.lastInsertRowid));
+                }
+            }
+
+            // Remove locations that are no longer part of the set
+            if (keptIds.length > 0) {
+                const placeholders = keptIds.map(() => "?").join(",");
+                db.prepare(
+                    `DELETE FROM locations WHERE id NOT IN (${placeholders})`,
+                ).run(...keptIds);
             }
         })(newLocations);
 
@@ -406,7 +521,7 @@ app.post("/api/locations", (req, res) => {
     }
 });
 
-// Add a single location -
+// Add or update a single location -
 // used for saving attractions
 app.put("/api/locations/single", (req, res) => {
     try {
@@ -415,37 +530,43 @@ app.put("/api/locations/single", (req, res) => {
             return res.status(400).json({ error: "Missing name, lat, or lng" });
         }
 
-        const insert = db.prepare(
-            "INSERT INTO locations (id, name, lat, lng, trip_id) VALUES (?, ?, ?, ?, ?)",
-        );
-        let result;
+        const findLoc = db.prepare("SELECT id FROM locations WHERE id = ?");
+        let id;
 
-        // If it has an existing ID, keep it, else let sqlite generate one
-        if (loc.id !== undefined) {
-            result = insert.run(loc.id, loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
+        // Update an existing location if the id is known, else insert a new one
+        if (loc.id !== undefined && loc.id !== null && findLoc.get(loc.id)) {
+            db.prepare(
+                "UPDATE locations SET name = ?, lat = ?, lng = ?, trip_id = ? WHERE id = ?",
+            ).run(loc.name, loc.lat, loc.lng, loc.trip_id ?? null, loc.id);
+            id = loc.id;
         } else {
-            result = db.prepare(
+            const result = db.prepare(
                 "INSERT INTO locations (name, lat, lng, trip_id) VALUES (?, ?, ?, ?)",
             ).run(loc.name, loc.lat, loc.lng, loc.trip_id ?? null);
+            id = result.lastInsertRowid;
         }
 
-        // Return the ID of the inserted location as a string to avoid parsing bigint
-        res.json({ success: true, id: String(result.lastInsertRowid) });
+        // Return the ID as a string to avoid parsing bigint
+        res.json({ success: true, id: String(id) });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Could not save location" });
     }
 });
 
-// Splice out messy GPS history section based on ID bounds
+// Splice out messy GPS history section based on ID bounds within a single trip
 app.delete("/api/path/splice", (req, res) => {
-    const { startId, endId } = req.body;
-    if (!startId || !endId) return res.status(400).json({ error: "Missing startId or endId" });
+    const { startId, endId, tripId } = req.body;
+    if (!startId || !endId || tripId === undefined || tripId === null) {
+        return res.status(400).json({ error: "Missing startId, endId, or tripId" });
+    }
 
     try {
         // Sort IDs to allow backward/forward selection
-        const bounds = [startId, endId].sort((a, b) => a - b);
-        const result = db.prepare("DELETE FROM gps_path WHERE id >= ? AND id <= ?").run(bounds[0], bounds[1]);
+        const bounds = [Number(startId), Number(endId)].sort((a, b) => a - b);
+        const result = db
+            .prepare("DELETE FROM gps_path WHERE trip_id = ? AND id >= ? AND id <= ?")
+            .run(tripId, bounds[0], bounds[1]);
 
         res.json({ success: true, removed: result.changes });
     } catch (error) {
@@ -472,6 +593,11 @@ app.get("/api/live-tracking", (req, res) => {
     } catch {
         res.status(500).json({ error: "Could not fetch live tracking data" });
     }
+});
+
+// Fail closed: unregistered API routes must 404, never fall through to the SPA
+app.use("/api", (req, res) => {
+    res.status(404).json({ error: "Not found" });
 });
 
 // SPA fallback for frontend router

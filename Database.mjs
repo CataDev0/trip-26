@@ -57,6 +57,36 @@ export function initializeDatabase(db) {
     migrateTripIds(db);
   }
   addColumnIfMissing(db, 'gps_path', 'current_speed', 'INTEGER');
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_gps_path_trip_id ON gps_path(trip_id)`).run();
+
+  // Drop visited marks pointing at locations that no longer exist
+  db.prepare(`DELETE FROM visited_locations WHERE id NOT IN (SELECT id FROM locations)`).run();
+
+  normalizeTimestamps(db);
+}
+
+/**
+ * One-time, idempotent migration: convert legacy "YYYY-MM-DD HH:MM:SS" timestamps
+ * (SQLite CURRENT_TIMESTAMP format) to ISO 8601 so string ordering is correct.
+ * @param {import('better-sqlite3').Database} db
+ */
+function normalizeTimestamps(db) {
+  const tables = [
+    ['gps_path', 'timestamp'],
+    ['trips', 'started_at'],
+    ['trips', 'ended_at'],
+    ['trips', 'deleted_at'],
+  ];
+
+  for (const [table, column] of tables) {
+    const updated = db.prepare(
+      `UPDATE ${table} SET ${column} = substr(${column}, 1, 10) || 'T' || substr(${column}, 12) || 'Z' WHERE instr(${column}, 'T') = 0 AND length(${column}) >= 19`
+    ).run();
+    if (updated.changes > 0) {
+      console.log(`Normalize timestamps: converted ${updated.changes} ${table}.${column} rows to ISO 8601.`);
+    }
+  }
 }
 
 function columnExists(db, table, column) {

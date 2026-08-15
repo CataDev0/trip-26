@@ -24,6 +24,28 @@ Trip Tracker is a full stack application that tracks your roadtrip or hikes usin
 - Username & Password login required one time to start tracking and editing
   - Saved to device
 
+## Privacy
+
+This is a public sharing site: **anyone with the URL can see all trips and all
+GPS points**, including the live position of whoever is currently tracking
+(updated roughly every 10 seconds while a trip is being recorded). Do not
+record trips in locations you do not want public.
+
+Trips can be hidden from public, and deleted entirely.
+
+## API access
+
+| Method + path | Auth | Purpose |
+| --- | --- | --- |
+| `GET /api/path` (`?trip_id=N` optional) | Public | Full GPS history |
+| `GET /api/trips` (`?trashed=true` optional) | Public | Trip list |
+| `GET /api/locations`, `GET /api/visited`, `GET /api/visitors` | Public | Locations / visited marks / visitor count |
+| `GET /api/live-tracking` | Public | Last known live position |
+| `GET /api/speed-limit` | Login required | HERE speed-limit proxy (paid API key) |
+| `POST/PUT/DELETE` on any `/api/*` route | Login required | All writes (points, trips, locations, splice) |
+
+Unknown `/api/*` routes return 404, never the web app.
+
 ## Setup Guide
 
 1. ### Clone Repo
@@ -47,6 +69,32 @@ Trip Tracker is a full stack application that tracks your roadtrip or hikes usin
     ```
 
     **Optionally:** Add [HERE](https://docs.here.com/geocoding-and-search/docs/get-started-with-here-geocoding-and-search-api-v7) API key for speed limit functionality - Using the Geocoding and Search API
+
+    **Other optional variables:**
+
+    ```bash
+    # Comma-separated origins allowed to call the API cross-origin.
+    # Unset = no cross-origin access (fine for the normal web + Android setup)
+    CORS_ORIGINS=https://example.com
+
+    # Set to 1 when running behind a reverse proxy so rate limits use the real client IP
+    TRUST_PROXY=0
+
+    # Rate limits per IP per minute (defaults shown)
+    RATE_LIMIT_PUBLIC_PER_MIN=120
+    RATE_LIMIT_WRITE_PER_MIN=30
+    RATE_LIMIT_SPEED_PER_MIN=30
+    ```
+
+    **Note:** `ADMIN_USERNAME` and `ADMIN_PASSWORD` are required — the server refuses to start without them.
+
+1. ### Back up the database (before deploying)
+
+    ```bash
+    npm run backup
+    ```
+
+    Writes `trip.db.<timestamp>.bak` next to `trip.db`. Run it before every deploy.
 
 1. ### Install dependencies and run vite build
 

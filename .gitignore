@@ -1,15 +1,16 @@
 frontend/node_modules/
 node_modules/
 trip.db
+trip.db.*.bak
 public/
 .env
 
 # Capacitor & Android Build Artifacts
-frontend/android/.gradle
-frontend/android/.idea
-frontend/android/app/build
-frontend/android/build
-frontend/android/app/src/main/assets/public
+frontend/android/.gradle/
+frontend/android/.idea/
+frontend/android/app/build/
+frontend/android/build/
+frontend/android/app/src/main/assets/public/
 !frontend/public/
 
 AGENTS.md

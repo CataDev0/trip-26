@@ -9,6 +9,7 @@ export interface LocationData {
     name: string;
     lat: number;
     lng: number;
+    trip_id?: number | null;
     imageUrl?: string;
 }
 

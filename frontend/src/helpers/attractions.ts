@@ -6,6 +6,12 @@ import { locations, createPopupContent, setMarker } from "./locationMarkers";
 
 const defaultIcon = new L.Icon.Default();
 
+// Only allow http(s) URLs from external data — everything else is unsafe
+// (javascript: schemes, attribute breakouts, etc.)
+function safeHttpUrl(value: string): string | null {
+    return /^https?:\/\//i.test(value) ? value : null;
+}
+
 /**
  * Fetches nearby attractions using Overpass API and renders them on the map.
  * @param map The Leaflet map instance to get bounds from and add markers to.
@@ -61,24 +67,57 @@ export async function fetchAndRenderAttractions(
                 : "Attraction";
             const name = el.tags["name:en"] || el.tags.name || formattedType;
 
-            let popupContent = "<div style=\"text-align: center; min-width: 150px;\">";
+            // Build popup with DOM APIs only — Overpass/OSM tags are external data
+            // and must never be interpolated into HTML strings
+            const container = document.createElement("div");
+            container.style.textAlign = "center";
+            container.style.minWidth = "150px";
 
             // Inline OpenStreetMap images if provided
             if (el.tags.image) {
-                if (el.tags.image.match(/\.(jpeg|jpg|gif|png)$/i)) {
-                    popupContent += `<img src="${el.tags.image}" alt="${name}" style="width:100%; max-height:120px; object-fit:cover; border-radius:4px; margin-bottom:5px;" /><br>`;
-                } else {
-                    popupContent += `<a href="${el.tags.image}" target="_blank" rel="noopener noreferrer" style="display:block; margin-bottom:5px;">📷 View Image</a>`;
+                const imageUrl = safeHttpUrl(el.tags.image);
+                if (imageUrl && /\.(jpeg|jpg|gif|png)$/i.test(imageUrl)) {
+                    const img = document.createElement("img");
+                    img.src = imageUrl;
+                    img.alt = name;
+                    img.style.width = "100%";
+                    img.style.maxHeight = "120px";
+                    img.style.objectFit = "cover";
+                    img.style.borderRadius = "4px";
+                    img.style.marginBottom = "5px";
+                    container.appendChild(img);
+                    container.appendChild(document.createElement("br"));
+                } else if (imageUrl) {
+                    const imageLink = document.createElement("a");
+                    imageLink.href = imageUrl;
+                    imageLink.target = "_blank";
+                    imageLink.rel = "noopener noreferrer";
+                    imageLink.style.display = "block";
+                    imageLink.style.marginBottom = "5px";
+                    imageLink.textContent = "📷 View Image";
+                    container.appendChild(imageLink);
                 }
             }
 
-            popupContent += `<strong>${name}</strong>`;
+            const nameEl = document.createElement("strong");
+            nameEl.textContent = name;
+            container.appendChild(nameEl);
             if (el.tags.name) {
-                popupContent += `<br><em>${formattedType !== "Attraction" ? formattedType : "Nearby Attraction"}</em>`;
+                container.appendChild(document.createElement("br"));
+                const typeEl = document.createElement("em");
+                typeEl.textContent = formattedType !== "Attraction" ? formattedType : "Nearby Attraction";
+                container.appendChild(typeEl);
             }
 
             if (el.tags.description) {
-                popupContent += `<br><br><div style="font-size: 0.9em; max-height: 100px; overflow-y: auto;">${el.tags.description}</div>`;
+                container.appendChild(document.createElement("br"));
+                container.appendChild(document.createElement("br"));
+                const desc = document.createElement("div");
+                desc.style.fontSize = "0.9em";
+                desc.style.maxHeight = "100px";
+                desc.style.overflowY = "auto";
+                desc.textContent = el.tags.description;
+                container.appendChild(desc);
             }
 
             let linkUrl = el.tags.website || el.tags.url;
@@ -93,14 +132,31 @@ export async function fetchAndRenderAttractions(
 
             if (linkUrl) {
                 if (!linkUrl.startsWith("http")) linkUrl = "http://" + linkUrl;
-                popupContent += `<br><br><a href="${linkUrl}" target="_blank" rel="noopener noreferrer">More Info</a>`;
+                const safeUrl = safeHttpUrl(linkUrl);
+                if (safeUrl) {
+                    container.appendChild(document.createElement("br"));
+                    container.appendChild(document.createElement("br"));
+                    const link = document.createElement("a");
+                    link.href = safeUrl;
+                    link.target = "_blank";
+                    link.rel = "noopener noreferrer";
+                    link.textContent = "More Info";
+                    container.appendChild(link);
+                }
             }
 
             if (canSave) {
-                popupContent += `<br><br><button style="padding:4px;cursor:pointer;" onclick="window.saveAttraction('${name.replace(/'/g, "\\'")}', ${el.lat}, ${el.lon})">Save to Locations</button>`;
+                container.appendChild(document.createElement("br"));
+                container.appendChild(document.createElement("br"));
+                const saveButton = document.createElement("button");
+                saveButton.style.padding = "4px";
+                saveButton.style.cursor = "pointer";
+                saveButton.textContent = "Save to Locations";
+                saveButton.addEventListener("click", () => {
+                    saveAttraction(map, name, el.lat, el.lon);
+                });
+                container.appendChild(saveButton);
             }
-
-            popupContent += "</div>";
 
             L.circleMarker([el.lat, el.lon], {
                 radius: 6,
@@ -111,7 +167,7 @@ export async function fetchAndRenderAttractions(
                 fillOpacity: 0.8,
             })
                 .addTo(map)
-                .bindPopup(popupContent);
+                .bindPopup(container);
         }
     });
 }

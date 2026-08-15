@@ -12,7 +12,7 @@ export class Gps {
     private currentPositionMarker: L.CircleMarker | null = null;
     private lastSpeedLimitFetch = 0;
     private wakeLock: WakeLockSentinel | null = null;
-    private offlineQueue: { lat: number; lng: number }[] = JSON.parse(
+    private offlineQueue: { lat: number; lng: number; timestamp?: string; tripId?: number | null; speed?: number | null }[] = JSON.parse(
         localStorage.getItem("gpsOfflineQueue") || "[]"
     );
     private geoLocation: Geolocation;
@@ -142,12 +142,27 @@ export class Gps {
                 body: JSON.stringify(this.offlineQueue),
             });
             if (res.ok) {
+                this.remapTripId(await res.json());
                 this.offlineQueue = [];
                 localStorage.setItem("gpsOfflineQueue", "[]");
             }
         } catch {
             console.log("Still offline, queue length:", this.offlineQueue.length);
         }
+    }
+
+    // The server may remap a client-generated trip id if it collides with an
+    // existing row — follow it so subsequent points stay in the same trip
+    private remapTripId(data: { tripIds?: Record<string, number> }) {
+        if (!data?.tripIds || this.currentTripId === null) return;
+        const oldTripId = this.currentTripId;
+        const remapped = data.tripIds[String(oldTripId)];
+        if (remapped === undefined || Number(remapped) === oldTripId) return;
+
+        this.currentTripId = Number(remapped);
+        this.offlineQueue = this.offlineQueue.map((p) =>
+            p.tripId === oldTripId ? { ...p, tripId: this.currentTripId as number } : p,
+        );
     }
 
     private async requestWakeLock() {
@@ -166,7 +181,8 @@ export class Gps {
 
     private async fetchSpeedLimit(lat: number, lng: number) {
         try {
-            const res = await fetch(
+            // The speed-limit proxy requires auth (it uses a paid API key)
+            const res = await authFetch(
                 API_BASE + `/api/speed-limit?lat=${lat}&lng=${lng}`,
             );
             if (!res.ok) throw new Error("Proxy failed");
@@ -257,11 +273,12 @@ export class Gps {
             }
 
             try {
-                await authFetch(API_BASE + "/api/path", {
+                const res = await authFetch(API_BASE + "/api/path", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(point),
                 });
+                this.remapTripId(await res.json());
             } catch (e) {
                 console.error("Failed to save to DB, queueing offline", e);
                 this.offlineQueue.push(point);
