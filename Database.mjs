@@ -1,4 +1,6 @@
 import { Utils } from './Utils.mjs'
+import fs from "fs"
+import path from 'path';
 
 /**
  * Initializes the database schema.
@@ -67,6 +69,42 @@ export function initializeDatabase(db) {
   db.prepare(`DELETE FROM visited_locations WHERE id NOT IN (SELECT id FROM locations)`).run();
 
   normalizeTimestamps(db);
+  seedLocations(db);
+}
+
+/**
+ * Seed locations from JSON if database is empty and locations.json is populated
+ * @param {import('better-sqlite3').Database} db
+ */
+function seedLocations(db) {
+  const locationsPath = path.join(path.dirname("."), "locations.json");
+  if (fs.existsSync(locationsPath)) {
+    const locationsData = fs.readFileSync(locationsPath, "utf8");
+    const rawLocations = JSON.parse(locationsData);
+    if (Array.isArray(rawLocations) && rawLocations.length > 0) {
+      const count = db.prepare("SELECT COUNT(*) as count FROM locations").get();
+      if (count.count === 0) {
+        try {
+          if (fs.existsSync(locationsPath)) {
+            const insert = db.prepare(
+              "INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)",
+            );
+            const insertMultiple = db.transaction((locs) => {
+              for (const loc of locs) {
+                if (loc.name && loc.lat && loc.lng) {
+                  insert.run(loc.name, loc.lat, loc.lng);
+                }
+              }
+            });
+            insertMultiple(rawLocations);
+            console.log("Seeded database with locations.json");
+          }
+        } catch (e) {
+          console.error("Error seeding database:", e);
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -121,7 +159,7 @@ function migrateTripIds(db) {
     return;
   }
 
-  const trips = Utils.SplitTripsByGap(gpsPathRows, 30); 
+  const trips = Utils.SplitTripsByGap(gpsPathRows, 30);
   console.log(`Detected ${trips.length} trips from ${gpsPathRows.length} points.`);
 
   const insertTrip = db.prepare(

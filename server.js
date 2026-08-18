@@ -1,10 +1,13 @@
+"use strict";
+
 require("dotenv").config({ "quiet": true });
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
 if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
     console.error(
-        "Missing ADMIN_USERNAME or ADMIN_PASSWORD in .env — refusing to start with insecure defaults.",
+        "Missing ADMIN_USERNAME and/or ADMIN_PASSWORD in .env - please set them before starting the server.",
     );
     process.exit(1);
 }
@@ -18,7 +21,6 @@ if (ADMIN_PASSWORD === ADMIN_USERNAME) {
 const express = require("express");
 const cors = require("cors");
 const sqlite = require("better-sqlite3");
-const fs = require("fs");
 const path = require("path");
 const rateLimit = require("express-rate-limit");
 const { Utils } = require("./Utils.mjs");
@@ -31,8 +33,8 @@ if (process.env.CORS_ORIGINS) {
     app.use(cors({ origin: process.env.CORS_ORIGINS.split(",") }));
 }
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "25mb" }));
-// Explicit allowlist of public GET endpoints. Everything else under /api
-// requires HTTP Basic auth — fail closed, no heuristics.
+
+// Everything else under /api requires HTTP Basic auth
 const PUBLIC_GET_PATHS = new Set([
     "/api/path",
     "/api/trips",
@@ -42,8 +44,8 @@ const PUBLIC_GET_PATHS = new Set([
     "/api/visitors",
 ]);
 
-// True when the request carries valid Basic auth credentials — used both by
-// the middleware and by public GET handlers that serve extra data when authed
+// True when the request carries valid Basic auth, used both by the middleware
+// and by public GET handlers that serve extra data when authed
 function isAuthenticatedRequest(req) {
     const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
     const [login, password] = Buffer.from(b64auth, "base64")
@@ -117,32 +119,6 @@ db.pragma("foreign_keys = ON");
 
 // Initialize database
 initializeDatabase(db);
-
-// Seed locations from JSON if database is empty
-const count = db.prepare("SELECT COUNT(*) as count FROM locations").get();
-if (count.count === 0) {
-    try {
-        const locationsPath = path.join(__dirname, "locations.json");
-        if (fs.existsSync(locationsPath)) {
-            const locationsData = fs.readFileSync(locationsPath, "utf8");
-            const rawLocations = JSON.parse(locationsData);
-            const insert = db.prepare(
-                "INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)",
-            );
-            const insertMultiple = db.transaction((locs) => {
-                for (const loc of locs) {
-                    if (loc.name && loc.lat && loc.lng) {
-                        insert.run(loc.name, loc.lat, loc.lng);
-                    }
-                }
-            });
-            insertMultiple(rawLocations);
-            console.log("Seeded database with locations.json");
-        }
-    } catch (e) {
-        console.error("Error seeding database:", e);
-    }
-}
 
 // API Endpoints
 
