@@ -38,6 +38,7 @@ app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "25mb" }));
 const PUBLIC_GET_PATHS = new Set([
     "/api/path",
     "/api/trips",
+    "/api/clusters",
     "/api/locations",
     "/api/visited",
     "/api/live-tracking",
@@ -122,8 +123,8 @@ initializeDatabase(db);
 
 // API Endpoints
 
-// Get predefined locations — locations belonging to hidden trips are only
-// included for authenticated requests
+// Get predefined locations — locations belonging to hidden trips or hidden
+// clusters are only included for authenticated requests
 app.get("/api/locations", (req, res) => {
     try {
         const locations = isAuthenticatedRequest(req)
@@ -133,7 +134,9 @@ app.get("/api/locations", (req, res) => {
             : db
                 .prepare(
                     `SELECT id, name, lat, lng, trip_id FROM locations
-                     WHERE trip_id IS NULL OR trip_id NOT IN (SELECT id FROM trips WHERE hidden = 1)`,
+                     WHERE trip_id IS NULL OR (
+                         trip_id NOT IN (SELECT id FROM trips WHERE hidden = 1)
+                         AND trip_id NOT IN (SELECT id FROM trips WHERE cluster_id IN (SELECT id FROM trip_cluster WHERE hidden = 1)))`,
                 )
                 .all();
         res.json(locations);
@@ -252,8 +255,13 @@ app.get("/api/path", (req, res) => {
             .prepare("SELECT * FROM gps_path WHERE trip_id = ? ORDER BY timestamp ASC")
             .all(trip_id);
         if (!includeHidden) {
-            const trip = db.prepare("SELECT hidden FROM trips WHERE id = ?").get(trip_id);
-            if (trip && trip.hidden) {
+            const trip = db
+                .prepare(
+                    `SELECT t.hidden, (SELECT c.hidden FROM trip_cluster c WHERE c.id = t.cluster_id) AS cluster_hidden
+                     FROM trips t WHERE t.id = ?`,
+                )
+                .get(trip_id);
+            if (trip && (trip.hidden || trip.cluster_hidden)) {
                 pathData = [];
             }
         }
@@ -265,7 +273,9 @@ app.get("/api/path", (req, res) => {
         pathData = db
             .prepare(
                 `SELECT * FROM gps_path
-                 WHERE trip_id IS NULL OR trip_id NOT IN (SELECT id FROM trips WHERE hidden = 1)
+                 WHERE trip_id IS NULL OR (
+                     trip_id NOT IN (SELECT id FROM trips WHERE hidden = 1)
+                     AND trip_id NOT IN (SELECT id FROM trips WHERE cluster_id IN (SELECT id FROM trip_cluster WHERE hidden = 1)))
                  ORDER BY timestamp ASC`,
             )
             .all();
@@ -328,11 +338,14 @@ app.get("/api/trips", (req, res) => {
         const trips = db
             .prepare(
                 `
-                SELECT t.id, t.started_at, t.ended_at, t.name, t.deleted_at, t.hidden,
+                SELECT t.id, t.started_at, t.ended_at, t.name, t.deleted_at, t.hidden, t.cluster_id,
                        (SELECT COUNT(*) FROM gps_path p WHERE p.trip_id = t.id) AS point_count
                 FROM trips t
                 WHERE ${trashed === "true" ? "t.deleted_at IS NOT NULL" : "t.deleted_at IS NULL"}
-                  AND ${includeHidden ? "1=1" : "(t.hidden IS NULL OR t.hidden = 0)"}
+                  AND ${includeHidden
+                        ? "1=1"
+                        : `(t.hidden IS NULL OR t.hidden = 0)
+                           AND (t.cluster_id IS NULL OR t.cluster_id NOT IN (SELECT id FROM trip_cluster WHERE hidden = 1))`}
                 ORDER BY t.started_at DESC
                 `,
             )
@@ -466,6 +479,119 @@ app.post("/api/trips/purge", (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Could not purge trips" });
+    }
+});
+
+// Get all trip clusters (groups). Hidden clusters are only included for
+// authenticated requests.
+app.get("/api/clusters", (req, res) => {
+    try {
+        const clusters = db
+            .prepare(
+                `SELECT id, name, hidden FROM trip_cluster
+                 WHERE ${isAuthenticatedRequest(req) ? "1=1" : "(hidden IS NULL OR hidden = 0)"}
+                 ORDER BY name COLLATE NOCASE`,
+            )
+            .all();
+        res.json(clusters);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not load clusters" });
+    }
+});
+
+// Create a new trip cluster (group)
+app.post("/api/clusters", (req, res) => {
+    try {
+        const { name } = req.body;
+        const result = db
+            .prepare("INSERT INTO trip_cluster (name) VALUES (?)")
+            .run(name || "New Group");
+        res.json({ success: true, id: Number(result.lastInsertRowid) });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not create cluster" });
+    }
+});
+
+// Assign trips to a cluster, or ungroup them (clusterId = null)
+app.post("/api/clusters/assign", (req, res) => {
+    try {
+        const { tripIds, clusterId } = req.body;
+        if (!Array.isArray(tripIds) || tripIds.length === 0) {
+            return res.status(400).json({ error: "Missing tripIds" });
+        }
+        if (clusterId !== null && clusterId !== undefined) {
+            const cluster = db.prepare("SELECT id FROM trip_cluster WHERE id = ?").get(clusterId);
+            if (!cluster) return res.status(404).json({ error: "Cluster not found" });
+        }
+        const placeholders = tripIds.map(() => "?").join(",");
+        const result = db
+            .prepare(`UPDATE trips SET cluster_id = ? WHERE id IN (${placeholders})`)
+            .run(clusterId ?? null, ...tripIds);
+        res.json({ success: true, updated: result.changes });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not assign trips" });
+    }
+});
+
+// Rename a cluster
+app.put("/api/clusters/:id", (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name) return res.status(400).json({ error: "Missing name" });
+
+        const result = db
+            .prepare("UPDATE trip_cluster SET name = ? WHERE id = ?")
+            .run(name, req.params.id);
+        if (result.changes === 0) return res.status(404).json({ error: "Cluster not found" });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not update cluster" });
+    }
+});
+
+// Hide a cluster from public viewing (or show it again)
+app.post("/api/clusters/:id/hidden", (req, res) => {
+    try {
+        const { hidden } = req.body;
+        if (typeof hidden !== "boolean") {
+            return res.status(400).json({ error: "Missing hidden (boolean)" });
+        }
+
+        const result = db
+            .prepare("UPDATE trip_cluster SET hidden = ? WHERE id = ?")
+            .run(hidden ? 1 : 0, req.params.id);
+        if (result.changes === 0) return res.status(404).json({ error: "Cluster not found" });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not update cluster visibility" });
+    }
+});
+
+// Delete a cluster — member trips are ungrouped (kept), including trashed ones,
+// so the trips.cluster_id foreign key never blocks the delete
+app.delete("/api/clusters/:id", (req, res) => {
+    try {
+        const result = db.transaction((id) => {
+            const ungrouped = db
+                .prepare("UPDATE trips SET cluster_id = NULL WHERE cluster_id = ?")
+                .run(id).changes;
+            const deleted = db
+                .prepare("DELETE FROM trip_cluster WHERE id = ?")
+                .run(id);
+            return { ungrouped, deleted: deleted.changes };
+        })(req.params.id);
+        if (result.deleted === 0) return res.status(404).json({ error: "Cluster not found" });
+        res.json({ success: true, ungrouped: result.ungrouped });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not delete cluster" });
     }
 });
 
@@ -610,8 +736,8 @@ app.delete("/api/path/splice", (req, res) => {
     }
 });
 
-// Send last GPS point for live tracking — hidden when the active trip is
-// hidden and the request is unauthenticated
+// Send last GPS point for live tracking — hidden when the active trip (or its
+// cluster) is hidden and the request is unauthenticated
 app.get("/api/live-tracking", (req, res) => {
     if (!Utils.isLiveTracking) {
         return res.status(404).json({ error: "Live Tracking is not available" });
@@ -620,14 +746,15 @@ app.get("/api/live-tracking", (req, res) => {
     try {
         const lastPoint = db
             .prepare(
-                `SELECT p.lat, p.lng, t.hidden AS trip_hidden
+                `SELECT p.lat, p.lng, t.hidden AS trip_hidden,
+                        (SELECT c.hidden FROM trip_cluster c WHERE c.id = t.cluster_id) AS cluster_hidden
                  FROM gps_path p
                  LEFT JOIN trips t ON t.id = p.trip_id
                  ORDER BY p.timestamp DESC LIMIT 1`,
             )
             .get();
         if (lastPoint) {
-            if (lastPoint.trip_hidden && !isAuthenticatedRequest(req)) {
+            if ((lastPoint.trip_hidden || lastPoint.cluster_hidden) && !isAuthenticatedRequest(req)) {
                 return res.status(404).json({ error: "Live Tracking is not available" });
             }
             res.json({ lat: lastPoint.lat, lng: lastPoint.lng });

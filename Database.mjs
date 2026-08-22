@@ -17,6 +17,18 @@ export function initializeDatabase(db) {
 
   db.prepare(
     `
+      CREATE TABLE IF NOT EXISTS trip_cluster (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT
+      )
+    `
+  ).run();
+
+  // Clusters can be hidden from public viewing
+  addColumnIfMissing(db, 'trip_cluster', 'hidden', 'INTEGER NOT NULL DEFAULT 0');
+
+  db.prepare(
+    `
       CREATE TABLE IF NOT EXISTS trips (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -57,10 +69,19 @@ export function initializeDatabase(db) {
   // Trips can be hidden from public viewing
   addColumnIfMissing(db, 'trips', 'hidden', 'INTEGER NOT NULL DEFAULT 0');
 
+  // Refer gps_path traces to a specific trip
   if (!columnExists(db, 'gps_path', 'trip_id')) {
     db.prepare(`ALTER TABLE gps_path ADD COLUMN trip_id INTEGER REFERENCES trips(id)`).run();
     migrateTripIds(db);
   }
+
+  // Refer trips to a cluster
+  if (!columnExists(db, 'trips', 'cluster_id')) {
+    db.prepare(`ALTER TABLE trips ADD COLUMN cluster_id INTEGER REFERENCES trip_cluster(id)`).run();
+  }
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_trips_cluster_id ON trips(cluster_id)`).run();
+
   addColumnIfMissing(db, 'gps_path', 'current_speed', 'INTEGER');
 
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_gps_path_trip_id ON gps_path(trip_id)`).run();
@@ -78,30 +99,29 @@ export function initializeDatabase(db) {
  */
 function seedLocations(db) {
   const locationsPath = path.join(path.dirname("."), "locations.json");
-  if (fs.existsSync(locationsPath)) {
-    const locationsData = fs.readFileSync(locationsPath, "utf8");
-    const rawLocations = JSON.parse(locationsData);
-    if (Array.isArray(rawLocations) && rawLocations.length > 0) {
-      const count = db.prepare("SELECT COUNT(*) as count FROM locations").get();
-      if (count.count === 0) {
-        try {
-          if (fs.existsSync(locationsPath)) {
-            const insert = db.prepare(
-              "INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)",
-            );
-            const insertMultiple = db.transaction((locs) => {
-              for (const loc of locs) {
-                if (loc.name && loc.lat && loc.lng) {
-                  insert.run(loc.name, loc.lat, loc.lng);
-                }
-              }
-            });
-            insertMultiple(rawLocations);
-            console.log("Seeded database with locations.json");
+  if (!fs.existsSync(locationsPath)) return;
+
+  const locationsData = fs.readFileSync(locationsPath, "utf8");
+  const rawLocations = JSON.parse(locationsData);
+
+  if (Array.isArray(rawLocations) && rawLocations.length > 0) {
+    const count = db.prepare("SELECT COUNT(*) as count FROM locations").get();
+    if (count.count === 0) {
+      try {
+        const insert = db.prepare(
+          "INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)",
+        );
+        const insertMultiple = db.transaction((locs) => {
+          for (const loc of locs) {
+            if (loc.name && loc.lat && loc.lng) {
+              insert.run(loc.name, loc.lat, loc.lng);
+            }
           }
-        } catch (e) {
-          console.error("Error seeding database:", e);
-        }
+        });
+        insertMultiple(rawLocations);
+        console.log("Seeded database with locations.json");
+      } catch (e) {
+        console.error("Error seeding database:", e);
       }
     }
   }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  
   import TopBar from "./components/TopBar.svelte";
   import { MapEditor } from "./helpers/edit";
   import { getAuthHeader } from "./helpers/auth";

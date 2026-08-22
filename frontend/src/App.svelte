@@ -14,7 +14,7 @@
     import { LiveTracking } from "./helpers/liveTracking";
     import { gpsPath, pathDataReady } from "./stores/tripStore";
     import { get } from "svelte/store";
-  import { LogIn } from "lucide-svelte";
+    import { LogIn } from "lucide-svelte";
 
     let map: L.Map;
     let mapContainer: HTMLDivElement;

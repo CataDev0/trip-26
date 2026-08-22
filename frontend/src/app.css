@@ -325,6 +325,43 @@ h1 {
   flex-shrink: 0;
 }
 
+/* Trip groups */
+.cluster-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #f6f8fa;
+  border-bottom: 1px solid #eee;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: #333;
+}
+
+.cluster-header:hover {
+  background: #eef1f4;
+}
+
+.cluster-name {
+  flex-grow: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-count {
+  font-size: 0.7rem;
+  color: #888;
+  background: #e9ecef;
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+
+.trip-item.cluster-trip {
+  padding-left: 28px;
+}
+
 .trip-item input[type="checkbox"] {
   flex-shrink: 0;
 }

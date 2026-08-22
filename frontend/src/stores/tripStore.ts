@@ -11,6 +11,16 @@ export interface Trip {
     // 1 = hidden
     // 0 = public (or null/undefined)
     hidden?: number | null;
+    // null/undefined = not in a group
+    cluster_id?: number | null;
+}
+
+export interface Cluster {
+    id: number;
+    name?: string | null;
+    // 1 = hidden
+    // 0 = public (or null/undefined)
+    hidden?: number | null;
 }
 
 export const gpsPath = writable<PathPoint[]>([]);
@@ -22,6 +32,7 @@ export const currentSpeedLimit = writable<number | null>(null);
 
 export const trips = writable<Trip[]>([]);
 export const trashedTrips = writable<Trip[]>([]);
+export const clusters = writable<Cluster[]>([]);
 export const selectedTripIds = writable<Set<number>>(new Set());
 export const pathDataReady = writable(false);
 // Trips currently highlighted on the map ("Show on map")

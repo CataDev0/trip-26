@@ -1,12 +1,16 @@
 <script lang="ts">
-    import { createEventDispatcher, onMount } from "svelte";
+    import { createEventDispatcher, onDestroy, onMount } from "svelte";
     import { get } from "svelte/store";
     import {
         ArrowUpDown,
+        ChevronDown,
         ChevronLeft,
+        ChevronRight,
         Download,
         Eye,
         EyeOff,
+        Folder,
+        FolderPlus,
         MapPin,
         Navigation,
         Pencil,
@@ -17,7 +21,15 @@
         Trash2,
         X,
     } from "lucide-svelte";
-    import { highlightedTripIds, selectedTripIds, trashedTrips, trips, type Trip } from "../stores/tripStore";
+    import {
+        clusters,
+        highlightedTripIds,
+        selectedTripIds,
+        trashedTrips,
+        trips,
+        type Cluster,
+        type Trip,
+    } from "../stores/tripStore";
     import {
         createTrip,
         exportTrips,
@@ -29,7 +41,16 @@
         setTripHidden,
         trashTrips,
     } from "../helpers/trips";
+    import {
+        assignTripsToCluster,
+        createCluster,
+        deleteCluster,
+        fetchClusters,
+        renameCluster,
+        setClusterHidden,
+    } from "../helpers/clusters";
     import { clearAuth, isLoggedIn } from "../helpers/auth";
+    import GroupChooser from "./GroupChooser.svelte";
 
     export let sidebarExpanded: boolean = false;
 
@@ -46,6 +67,13 @@
     let showTrash: boolean = false;
     let tripsError: boolean = false;
     let hasAuth: boolean = false;
+
+    // Groups default to expanded; only collapsed ids are tracked
+    let collapsedClusters: Set<number> = new Set();
+    let ungroupedExpanded: boolean = true;
+    type ChooserMode = { mode: "selected" } | { mode: "trip"; tripId: number };
+    let chooserMode: ChooserMode | null = null;
+    let chooserComponent: GroupChooser | null = null;
 
     const SORT_MODES: { mode: SortMode; label: string }[] = [
         { mode: "newest", label: "Newest" },
@@ -90,9 +118,58 @@
 
     $: filteredTrips = computeFilteredTrips($trips, searchQuery, sortMode);
 
+    type DisplayItem =
+        | { kind: "cluster"; cluster: Cluster | null; members: Trip[] }
+        | { kind: "trip"; trip: Trip; groupHidden: boolean };
+
+    function buildDisplayList(
+        clusterList: Cluster[],
+        tripList: Trip[],
+        query: string,
+        authed: boolean,
+        collapsed: Set<number>,
+        ungroupedOpen: boolean,
+    ): DisplayItem[] {
+        const items: DisplayItem[] = [];
+        const searching = query.trim().length > 0;
+        const knownClusterIds = new Set(clusterList.map((c) => c.id));
+        for (const cluster of clusterList) {
+            const members = tripList.filter((t) => t.cluster_id === cluster.id);
+            if (members.length === 0 && (searching || !authed)) continue;
+            items.push({ kind: "cluster", cluster, members });
+            if (!collapsed.has(cluster.id)) {
+                for (const trip of members) {
+                    items.push({ kind: "trip", trip, groupHidden: !!cluster.hidden });
+                }
+            }
+        }
+        // Trips not in any group — including orphans whose group is unknown
+        const ungrouped = tripList.filter(
+            (t) => t.cluster_id == null || !knownClusterIds.has(t.cluster_id),
+        );
+        if (ungrouped.length > 0) {
+            items.push({ kind: "cluster", cluster: null, members: ungrouped });
+            if (ungroupedOpen) {
+                for (const trip of ungrouped) {
+                    items.push({ kind: "trip", trip, groupHidden: false });
+                }
+            }
+        }
+        return items;
+    }
+
+    $: displayItems = buildDisplayList(
+        $clusters,
+        filteredTrips,
+        searchQuery,
+        hasAuth,
+        collapsedClusters,
+        ungroupedExpanded,
+    );
+
     async function loadTrips() {
         try {
-            await fetchTrips();
+            await Promise.all([fetchTrips(), fetchClusters()]);
             tripsError = false;
         } catch (err) {
             console.error("Failed to load trips", err);
@@ -174,6 +251,124 @@
             alert("Failed to update trip visibility.");
         }
     }
+
+    async function addNewCluster() {
+        const name = prompt("New group name:", "New Group");
+        if (name === null || name.trim() === "") return;
+        try {
+            await createCluster(name.trim());
+        } catch (err) {
+            console.error("Failed to create group", err);
+            alert("Failed to create group.");
+        }
+    }
+
+    async function editCluster(cluster: Cluster) {
+        const current = cluster.name ?? "";
+        const name = prompt("Rename group:", current);
+        if (name === null || name.trim() === "" || name.trim() === current) return;
+        try {
+            await renameCluster(cluster.id, name.trim());
+        } catch (err) {
+            console.error("Failed to rename group", err);
+            alert("Failed to rename group.");
+        }
+    }
+
+    async function removeCluster(cluster: Cluster) {
+        if (
+            !confirm(
+                `Delete group "${cluster.name ?? "Unnamed group"}"? Its trips will be ungrouped but not deleted.`,
+            )
+        )
+            return;
+        try {
+            await deleteCluster(cluster.id);
+        } catch (err) {
+            console.error("Failed to delete group", err);
+            alert("Failed to delete group.");
+        }
+    }
+
+    async function toggleClusterHidden(cluster: Cluster) {
+        try {
+            await setClusterHidden(cluster.id, !cluster.hidden);
+        } catch (err) {
+            console.error("Failed to update group visibility", err);
+            alert("Failed to update group visibility.");
+        }
+    }
+
+    function toggleCluster(id: number) {
+        const next = new Set(collapsedClusters);
+        if (next.has(id)) {
+            next.delete(id);
+        } else {
+            next.add(id);
+        }
+        collapsedClusters = next;
+    }
+
+    // Mounts the group chooser into document.body — the sidebar's mobile
+    // transform/overflow would break a position: fixed modal inside it
+    function openChooser(mode: ChooserMode) {
+        chooserMode = mode;
+        chooserComponent?.$destroy();
+        chooserComponent = new GroupChooser({
+            target: document.body,
+            props: {
+                clusters,
+                onChoose: handleChoose,
+                onCreate: handleCreateAndAssign,
+                onCancel: closeChooser,
+            },
+        });
+    }
+
+    function closeChooser() {
+        chooserComponent?.$destroy();
+        chooserComponent = null;
+        chooserMode = null;
+    }
+
+    function chooserTargets(mode: ChooserMode): { ids: number[]; clearAfter: boolean } {
+        return mode.mode === "selected"
+            ? { ids: [...get(selectedTripIds)], clearAfter: true }
+            : { ids: [mode.tripId], clearAfter: false };
+    }
+
+    async function handleChoose(clusterId: number | null) {
+        const mode = chooserMode;
+        if (!mode) return;
+        const { ids, clearAfter } = chooserTargets(mode);
+        closeChooser();
+        try {
+            await assignTripsToCluster(ids, clusterId);
+            if (clearAfter) clearSelection();
+        } catch (err) {
+            console.error("Failed to assign trips to group", err);
+            alert("Failed to assign trips to group.");
+        }
+    }
+
+    async function handleCreateAndAssign(name: string) {
+        const mode = chooserMode;
+        if (!mode) return;
+        const { ids, clearAfter } = chooserTargets(mode);
+        closeChooser();
+        try {
+            const id = await createCluster(name);
+            await assignTripsToCluster(ids, id);
+            if (clearAfter) clearSelection();
+        } catch (err) {
+            console.error("Failed to create group", err);
+            alert("Failed to create group.");
+        }
+    }
+
+    onDestroy(() => {
+        chooserComponent?.$destroy();
+    });
 
     // Remove stored credentials, stop sending Auth header
     // then refresh to the public dataset
@@ -278,83 +473,162 @@
                 <button class="btn btn-sm btn-danger" on:click={removeSelected}>
                     <Trash2 size="14" /> Remove
                 </button>
+                {#if hasAuth}
+                    <button
+                        class="btn btn-sm btn-secondary"
+                        on:click={() => openChooser({ mode: "selected" })}
+                    >
+                        <FolderPlus size="14" /> Add to group
+                    </button>
+                {/if}
             </div>
         {/if}
 
         <div class="trip-list">
-            {#each filteredTrips as trip (trip.id)}
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <div
-                    class="trip-item {$selectedTripIds.has(trip.id) ? "selected" : ""} {$highlightedTripIds.includes(trip.id) ? "highlighted" : ""}"
-                    on:click={() => toggleSelect(trip.id)}
-                >
-                    <input
-                        type="checkbox"
-                        checked={$selectedTripIds.has(trip.id)}
-                        on:click|stopPropagation={() => toggleSelect(trip.id)}
-                    />
-                    <div class="trip-info">
-                        <div class="trip-name">
-                            {tripName(trip)}
-                            {#if trip.hidden}
-                                <span title="Hidden from public">
-                                    <EyeOff
-                                        size="12"
-                                        style="vertical-align: -2px; margin-left: 4px; color: #ff8c00;"
-                                    />
-                                </span>
-                            {/if}
-                        </div>
-                        <div class="trip-meta">
-                            {formatDate(trip.started_at)}
-                            {#if (trip.point_count ?? 0) > 0}
-                                · {trip.point_count} pts
-                            {/if}
-                        </div>
-                    </div>
-                    {#if $highlightedTripIds.includes(trip.id)}
-                        <span class="highlight-badge" title="Highlighted on map">On map</span>
-                    {/if}
+            {#each displayItems as item (item.kind === "cluster" ? `c${item.cluster?.id ?? "u"}` : `t${item.trip.id}`)}
+                {#if item.kind === "cluster"}
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-static-element-interactions -->
-                    <div class="trip-actions" on:click|stopPropagation>
-                        <button title="Show on map" on:click={() => dispatch("showTrip", trip.id)}>
-                            <MapPin size="14" />
-                        </button>
-                        {#if hasAuth}
-                            <button
-                                title={trip.hidden ? "Show publicly" : "Hide from public"}
-                                on:click={() => toggleHidden(trip)}
-                            >
-                                {#if trip.hidden}
-                                    <EyeOff color="red" size="14" />
-                                {:else}
-                                    <Eye size="14" />
-                                {/if}
-                            </button>
+                    <div
+                        class="cluster-header"
+                        on:click={() =>
+                            item.cluster
+                                ? toggleCluster(item.cluster.id)
+                                : (ungroupedExpanded = !ungroupedExpanded)}
+                    >
+                        {#if item.cluster ? !collapsedClusters.has(item.cluster.id) : ungroupedExpanded}
+                            <ChevronDown size="14" />
+                        {:else}
+                            <ChevronRight size="14" />
                         {/if}
-                        <button title="Share" on:click={() => shareTrip(trip)}>
-                            <Share2 size="14" />
-                        </button>
-                        <button title="Edit" on:click={() => editTrip(trip)}>
-                            <Pencil size="14" />
-                        </button>
-                        <button
-                            title="Route guidance"
-                            on:click={() => dispatch("routeGuidance", trip.id)}
-                        >
-                            <Navigation size="14" />
-                        </button>
+                        {#if item.cluster}<Folder size="14" />{/if}
+                        <span class="cluster-name">{item.cluster?.name ?? "Ungrouped"}</span>
+                        <span class="cluster-count">{item.members.length}</span>
+                        {#if item.cluster?.hidden}
+                            <span title="Hidden from public">
+                                <EyeOff
+                                    size="12"
+                                    style="vertical-align: -2px; color: #ff8c00;"
+                                />
+                            </span>
+                        {/if}
+                        {#if item.cluster}
+                            <!-- svelte-ignore a11y-click-events-have-key-events -->
+                            <!-- svelte-ignore a11y-no-static-element-interactions -->
+                            <div class="trip-actions" on:click|stopPropagation>
+                                <button
+                                    title="Show group on map"
+                                    on:click={() => dispatch("showTrips", item.members.map((t) => t.id))}
+                                >
+                                    <MapPin size="14" />
+                                </button>
+                                {#if hasAuth}
+                                    <button
+                                        title={item.cluster.hidden ? "Show publicly" : "Hide from public"}
+                                        on:click={() => item.cluster && toggleClusterHidden(item.cluster)}
+                                    >
+                                        {#if item.cluster.hidden}
+                                            <EyeOff color="red" size="14" />
+                                        {:else}
+                                            <Eye size="14" />
+                                        {/if}
+                                    </button>
+                                    <button
+                                        title="Rename group"
+                                        on:click={() => item.cluster && editCluster(item.cluster)}
+                                    >
+                                        <Pencil size="14" />
+                                    </button>
+                                    <button
+                                        title="Delete group"
+                                        on:click={() => item.cluster && removeCluster(item.cluster)}
+                                    >
+                                        <Trash2 size="14" />
+                                    </button>
+                                {/if}
+                            </div>
+                        {/if}
                     </div>
-                </div>
+                {:else}
+                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                    <!-- svelte-ignore a11y-no-static-element-interactions -->
+                    <div
+                        class="trip-item cluster-trip {$selectedTripIds.has(item.trip.id) ? "selected" : ""} {$highlightedTripIds.includes(item.trip.id) ? "highlighted" : ""}"
+                        on:click={() => toggleSelect(item.trip.id)}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={$selectedTripIds.has(item.trip.id)}
+                            on:click|stopPropagation={() => toggleSelect(item.trip.id)}
+                        />
+                        <div class="trip-info">
+                            <div class="trip-name">
+                                {tripName(item.trip)}
+                                {#if item.trip.hidden || item.groupHidden}
+                                    <span title="Hidden from public">
+                                        <EyeOff
+                                            size="12"
+                                            style="vertical-align: -2px; margin-left: 4px; color: #ff8c00;"
+                                        />
+                                    </span>
+                                {/if}
+                            </div>
+                            <div class="trip-meta">
+                                {formatDate(item.trip.started_at)}
+                                {#if (item.trip.point_count ?? 0) > 0}
+                                    · {item.trip.point_count} pts
+                                {/if}
+                            </div>
+                        </div>
+                        {#if $highlightedTripIds.includes(item.trip.id)}
+                            <span class="highlight-badge" title="Highlighted on map">On map</span>
+                        {/if}
+                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                        <!-- svelte-ignore a11y-no-static-element-interactions -->
+                        <div class="trip-actions" on:click|stopPropagation>
+                            <button title="Show on map" on:click={() => dispatch("showTrip", item.trip.id)}>
+                                <MapPin size="14" />
+                            </button>
+                            {#if hasAuth}
+                                <button
+                                    title={item.trip.hidden ? "Show publicly" : "Hide from public"}
+                                    on:click={() => toggleHidden(item.trip)}
+                                >
+                                    {#if item.trip.hidden}
+                                        <EyeOff color="red" size="14" />
+                                    {:else}
+                                        <Eye size="14" />
+                                    {/if}
+                                </button>
+                                <button
+                                    title="Add to group"
+                                    on:click={() => openChooser({ mode: "trip", tripId: item.trip.id })}
+                                >
+                                    <FolderPlus size="14" />
+                                </button>
+                            {/if}
+                            <button title="Share" on:click={() => shareTrip(item.trip)}>
+                                <Share2 size="14" />
+                            </button>
+                            <button title="Edit" on:click={() => editTrip(item.trip)}>
+                                <Pencil size="14" />
+                            </button>
+                            <button
+                                title="Route guidance"
+                                on:click={() => dispatch("routeGuidance", item.trip.id)}
+                            >
+                                <Navigation size="14" />
+                            </button>
+                        </div>
+                    </div>
+                {/if}
             {/each}
             {#if tripsError}
                 <div class="sidebar-empty">
                     Failed to load trips — is the server running?
                     <button class="btn btn-sm" on:click={loadTrips} style="margin-top:8px;">Retry</button>
                 </div>
-            {:else if filteredTrips.length === 0}
+            {:else if displayItems.length === 0}
                 <div class="sidebar-empty">
                     {searchQuery ? "No trips match your search." : "No trips yet."}
                 </div>
@@ -365,6 +639,11 @@
             <button class="btn btn-sm" on:click={addNewTrip}>
                 <Plus size="14" /> Add new trip
             </button>
+            {#if hasAuth}
+                <button class="btn btn-sm btn-secondary" on:click={addNewCluster}>
+                    <FolderPlus size="14" /> Add group
+                </button>
+            {/if}
             <button class="btn btn-sm btn-secondary" on:click={exportAllTrips}>
                 <Download size="14" /> Export trips
             </button>
