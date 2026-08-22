@@ -3,9 +3,12 @@
     import { get } from "svelte/store";
     import {
         ArrowUpDown,
+        Check,
         ChevronDown,
         ChevronLeft,
         ChevronRight,
+        Cross,
+        CrossIcon,
         Download,
         Eye,
         EyeOff,
@@ -41,6 +44,7 @@
         setTripHidden,
         trashTrips,
     } from "../helpers/trips";
+    import { locations, visitedIds } from "../helpers/locationMarkers";
     import {
         assignTripsToCluster,
         createCluster,
@@ -62,6 +66,8 @@
 
     type SortMode = "newest" | "oldest" | "name-asc" | "name-desc";
 
+    $: visitedLocationIds = get(visitedIds);
+
     let searchQuery: string = "";
     let sortMode: SortMode = "newest";
     let showTrash: boolean = false;
@@ -82,20 +88,30 @@
         { mode: "name-desc", label: "Z → A" },
     ];
 
-    const tripName = (trip: Trip): string => trip.name || `New Trip ${shortDate(trip.started_at)}`;
+    const tripName = (trip: Trip): string =>
+        trip.name || `New Trip ${shortDate(trip.started_at)}`;
 
     function shortDate(isoString?: string | null): string {
         if (!isoString) return "";
         const d = new Date(isoString);
         if (Number.isNaN(d.getTime())) return "";
-        return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        return d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+        });
     }
 
-    function computeFilteredTrips(allTrips: Trip[], query: string, mode: SortMode): Trip[] {
+    function computeFilteredTrips(
+        allTrips: Trip[],
+        query: string,
+        mode: SortMode,
+    ): Trip[] {
         let list = allTrips;
         const trimmed = query.trim().toLowerCase();
         if (trimmed) {
-            list = list.filter((t) => tripName(t).toLowerCase().includes(trimmed));
+            list = list.filter((t) =>
+                tripName(t).toLowerCase().includes(trimmed),
+            );
         }
         const sorted = [...list];
         const byDate = (a: Trip, b: Trip) =>
@@ -139,7 +155,11 @@
             items.push({ kind: "cluster", cluster, members });
             if (!collapsed.has(cluster.id)) {
                 for (const trip of members) {
-                    items.push({ kind: "trip", trip, groupHidden: !!cluster.hidden });
+                    items.push({
+                        kind: "trip",
+                        trip,
+                        groupHidden: !!cluster.hidden,
+                    });
                 }
             }
         }
@@ -210,7 +230,8 @@
     async function removeSelected() {
         const ids = [...get(selectedTripIds)];
         if (ids.length === 0) return;
-        if (!confirm(`Move ${ids.length} selected trip(s) to the trash?`)) return;
+        if (!confirm(`Move ${ids.length} selected trip(s) to the trash?`))
+            return;
         try {
             await trashTrips(ids);
             clearSelection();
@@ -234,7 +255,12 @@
 
     async function editTrip(trip: Trip) {
         const name = prompt("Rename trip:", tripName(trip));
-        if (name === null || name.trim() === "" || name.trim() === tripName(trip)) return;
+        if (
+            name === null ||
+            name.trim() === "" ||
+            name.trim() === tripName(trip)
+        )
+            return;
         try {
             await renameTrip(trip.id, name.trim());
         } catch (err) {
@@ -266,7 +292,8 @@
     async function editCluster(cluster: Cluster) {
         const current = cluster.name ?? "";
         const name = prompt("Rename group:", current);
-        if (name === null || name.trim() === "" || name.trim() === current) return;
+        if (name === null || name.trim() === "" || name.trim() === current)
+            return;
         try {
             await renameCluster(cluster.id, name.trim());
         } catch (err) {
@@ -331,7 +358,10 @@
         chooserMode = null;
     }
 
-    function chooserTargets(mode: ChooserMode): { ids: number[]; clearAfter: boolean } {
+    function chooserTargets(mode: ChooserMode): {
+        ids: number[];
+        clearAfter: boolean;
+    } {
         return mode.mode === "selected"
             ? { ids: [...get(selectedTripIds)], clearAfter: true }
             : { ids: [mode.tripId], clearAfter: false };
@@ -421,7 +451,12 @@
     }
 
     async function deleteTripForever(trip: Trip) {
-        if (!confirm(`Permanently delete "${tripName(trip)}"? This cannot be undone.`)) return;
+        if (
+            !confirm(
+                `Permanently delete "${tripName(trip)}"? This cannot be undone.`,
+            )
+        )
+            return;
         try {
             await purgeTrips([trip.id]);
         } catch (err) {
@@ -436,8 +471,14 @@
         <div class="sidebar-header">
             Trips
             {#if hasAuth}
-                <span class="hidden-trips-indicator" title="Hidden trips are visible to you because you are logged in.">
-                    Logged in <button class="btn btn-sm btn-secondary" on:click={logout}>Log out</button>
+                <span
+                    class="hidden-trips-indicator"
+                    title="Hidden trips are visible to you because you are logged in."
+                >
+                    Logged in <button
+                        class="btn btn-sm btn-secondary"
+                        on:click={logout}>Log out</button
+                    >
                 </span>
             {/if}
             <button
@@ -455,10 +496,9 @@
                     placeholder="Search trips..."
                 />
             </div>
-            <button
-                class="sort-btn"
-                title="Sort trips"
-                on:click={cycleSort}>{SORT_MODES.find((s) => s.mode === sortMode)?.label}<ArrowUpDown size="14" /></button
+            <button class="sort-btn" title="Sort trips" on:click={cycleSort}
+                >{SORT_MODES.find((s) => s.mode === sortMode)
+                    ?.label}<ArrowUpDown size="14" /></button
             >
         </div>
 
@@ -467,7 +507,10 @@
                 <button class="btn btn-sm" on:click={showSelectedOnMap}>
                     <Eye size="14" /> Show selected
                 </button>
-                <button class="btn btn-sm btn-secondary" on:click={clearSelection}>
+                <button
+                    class="btn btn-sm btn-secondary"
+                    on:click={clearSelection}
+                >
                     <X size="14" /> Clear
                 </button>
                 <button class="btn btn-sm btn-danger" on:click={removeSelected}>
@@ -502,7 +545,9 @@
                             <ChevronRight size="14" />
                         {/if}
                         {#if item.cluster}<Folder size="14" />{/if}
-                        <span class="cluster-name">{item.cluster?.name ?? "Ungrouped"}</span>
+                        <span class="cluster-name"
+                            >{item.cluster?.name ?? "Ungrouped"}</span
+                        >
                         <span class="cluster-count">{item.members.length}</span>
                         {#if item.cluster?.hidden}
                             <span title="Hidden from public">
@@ -518,14 +563,22 @@
                             <div class="trip-actions" on:click|stopPropagation>
                                 <button
                                     title="Show group on map"
-                                    on:click={() => dispatch("showTrips", item.members.map((t) => t.id))}
+                                    on:click={() =>
+                                        dispatch(
+                                            "showTrips",
+                                            item.members.map((t) => t.id),
+                                        )}
                                 >
                                     <MapPin size="14" />
                                 </button>
                                 {#if hasAuth}
                                     <button
-                                        title={item.cluster.hidden ? "Show publicly" : "Hide from public"}
-                                        on:click={() => item.cluster && toggleClusterHidden(item.cluster)}
+                                        title={item.cluster.hidden
+                                            ? "Show publicly"
+                                            : "Hide from public"}
+                                        on:click={() =>
+                                            item.cluster &&
+                                            toggleClusterHidden(item.cluster)}
                                     >
                                         {#if item.cluster.hidden}
                                             <EyeOff color="red" size="14" />
@@ -535,13 +588,17 @@
                                     </button>
                                     <button
                                         title="Rename group"
-                                        on:click={() => item.cluster && editCluster(item.cluster)}
+                                        on:click={() =>
+                                            item.cluster &&
+                                            editCluster(item.cluster)}
                                     >
                                         <Pencil size="14" />
                                     </button>
                                     <button
                                         title="Delete group"
-                                        on:click={() => item.cluster && removeCluster(item.cluster)}
+                                        on:click={() =>
+                                            item.cluster &&
+                                            removeCluster(item.cluster)}
                                     >
                                         <Trash2 size="14" />
                                     </button>
@@ -553,13 +610,20 @@
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-static-element-interactions -->
                     <div
-                        class="trip-item cluster-trip {$selectedTripIds.has(item.trip.id) ? "selected" : ""} {$highlightedTripIds.includes(item.trip.id) ? "highlighted" : ""}"
+                        class="trip-item cluster-trip {$selectedTripIds.has(
+                            item.trip.id,
+                        )
+                            ? "selected"
+                            : ""} {$highlightedTripIds.includes(item.trip.id)
+                                ? "highlighted"
+                                : ""}"
                         on:click={() => toggleSelect(item.trip.id)}
                     >
                         <input
                             type="checkbox"
                             checked={$selectedTripIds.has(item.trip.id)}
-                            on:click|stopPropagation={() => toggleSelect(item.trip.id)}
+                            on:click|stopPropagation={() =>
+                                toggleSelect(item.trip.id)}
                         />
                         <div class="trip-info">
                             <div class="trip-name">
@@ -581,17 +645,26 @@
                             </div>
                         </div>
                         {#if $highlightedTripIds.includes(item.trip.id)}
-                            <span class="highlight-badge" title="Highlighted on map">On map</span>
+                            <span
+                                class="highlight-badge"
+                                title="Highlighted on map">On map</span
+                            >
                         {/if}
                         <!-- svelte-ignore a11y-click-events-have-key-events -->
                         <!-- svelte-ignore a11y-no-static-element-interactions -->
                         <div class="trip-actions" on:click|stopPropagation>
-                            <button title="Show on map" on:click={() => dispatch("showTrip", item.trip.id)}>
+                            <button
+                                title="Show on map"
+                                on:click={() =>
+                                    dispatch("showTrip", item.trip.id)}
+                            >
                                 <MapPin size="14" />
                             </button>
                             {#if hasAuth}
                                 <button
-                                    title={item.trip.hidden ? "Show publicly" : "Hide from public"}
+                                    title={item.trip.hidden
+                                        ? "Show publicly"
+                                        : "Hide from public"}
                                     on:click={() => toggleHidden(item.trip)}
                                 >
                                     {#if item.trip.hidden}
@@ -602,20 +675,31 @@
                                 </button>
                                 <button
                                     title="Add to group"
-                                    on:click={() => openChooser({ mode: "trip", tripId: item.trip.id })}
+                                    on:click={() =>
+                                        openChooser({
+                                            mode: "trip",
+                                            tripId: item.trip.id,
+                                        })}
                                 >
                                     <FolderPlus size="14" />
                                 </button>
                             {/if}
-                            <button title="Share" on:click={() => shareTrip(item.trip)}>
+                            <button
+                                title="Share"
+                                on:click={() => shareTrip(item.trip)}
+                            >
                                 <Share2 size="14" />
                             </button>
-                            <button title="Edit" on:click={() => editTrip(item.trip)}>
+                            <button
+                                title="Edit"
+                                on:click={() => editTrip(item.trip)}
+                            >
                                 <Pencil size="14" />
                             </button>
                             <button
                                 title="Route guidance"
-                                on:click={() => dispatch("routeGuidance", item.trip.id)}
+                                on:click={() =>
+                                    dispatch("routeGuidance", item.trip.id)}
                             >
                                 <Navigation size="14" />
                             </button>
@@ -623,14 +707,57 @@
                     </div>
                 {/if}
             {/each}
+            {#if $locations.length}
+                <div class="cluster-header">
+                    <span class="cluster-name">Locations</span>
+                    <span class="cluster-count">{$locations.length}</span>
+                </div>
+                {#each $locations as location (location.id)}
+                    {@const visited = visitedLocationIds.has(location.id)}
+                    <div class="trip-item">
+                        <div
+                            class="trip-info {visited
+                                ? "location-visited"
+                                : ""}"
+                        >
+                            <div class="trip-name">{location.name}</div>
+                        </div>
+                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                        <!-- svelte-ignore a11y-no-static-element-interactions -->
+                        <div class="trip-actions" on:click|stopPropagation>
+                            {#if visited}
+                                <button
+                                    title="Revert visited status"
+                                    on:click={() => null}
+                                >
+                                    <X size="14" />
+                                </button>
+                            {:else}
+                                <button
+                                    title="Mark as visited"
+                                    on:click={() => null}
+                                >
+                                    <Check size="14" />
+                                </button>
+                            {/if}
+                        </div>
+                    </div>
+                {/each}
+            {/if}
             {#if tripsError}
                 <div class="sidebar-empty">
                     Failed to load trips — is the server running?
-                    <button class="btn btn-sm" on:click={loadTrips} style="margin-top:8px;">Retry</button>
+                    <button
+                        class="btn btn-sm"
+                        on:click={loadTrips}
+                        style="margin-top:8px;">Retry</button
+                    >
                 </div>
             {:else if displayItems.length === 0}
                 <div class="sidebar-empty">
-                    {searchQuery ? "No trips match your search." : "No trips yet."}
+                    {searchQuery
+                        ? "No trips match your search."
+                        : "No trips yet."}
                 </div>
             {/if}
         </div>
@@ -640,14 +767,20 @@
                 <Plus size="14" /> Add new trip
             </button>
             {#if hasAuth}
-                <button class="btn btn-sm btn-secondary" on:click={addNewCluster}>
+                <button
+                    class="btn btn-sm btn-secondary"
+                    on:click={addNewCluster}
+                >
                     <FolderPlus size="14" /> Add group
                 </button>
             {/if}
             <button class="btn btn-sm btn-secondary" on:click={exportAllTrips}>
                 <Download size="14" /> Export trips
             </button>
-            <button class="btn btn-sm btn-secondary" on:click={() => (showTrash = true)}>
+            <button
+                class="btn btn-sm btn-secondary"
+                on:click={() => (showTrash = true)}
+            >
                 <Trash2 size="14" /> Trash bin
             </button>
         </div>
@@ -667,12 +800,17 @@
                 <div class="trip-item">
                     <div class="trip-info">
                         <div class="trip-name">{tripName(trip)}</div>
-                        <div class="trip-meta">{formatDate(trip.deleted_at)} · trashed</div>
+                        <div class="trip-meta">
+                            {formatDate(trip.deleted_at)} · trashed
+                        </div>
                     </div>
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-static-element-interactions -->
                     <div class="trip-actions" on:click|stopPropagation>
-                        <button title="Restore" on:click={() => restoreTrip(trip)}>
+                        <button
+                            title="Restore"
+                            on:click={() => restoreTrip(trip)}
+                        >
                             <RotateCcw size="14" />
                         </button>
                         <button
