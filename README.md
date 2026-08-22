@@ -185,7 +185,7 @@ Contributions are welcome and are important to polish the software
 
 - iOS app support with capacitor
   - I dont have iOS, nor do I know how to build and sign an iOS app
-- Group trips together
+- ~~Group trips together~~ PR #3 !3
   - Option to filter based on group trips
 - Better editing tools
   - Clean up messy traces etc.
@@ -193,3 +193,8 @@ Contributions are welcome and are important to polish the software
   - Background tracking
 - Plan trips / Route planning
   - Use an API? Or make a complicated route planning tool
+- Trip replay tool
+  - Based on gps_trace timestamps
+  - Show sped up replay in detail
+  - Smooth animation for each node
+  - Both trips and trip clusters
