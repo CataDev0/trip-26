@@ -45,7 +45,7 @@
         setTripHidden,
         trashTrips,
     } from "../helpers/trips";
-    import { locations, visitedIds } from "../helpers/locationMarkers";
+    import { locations, visitedIds, markVisited } from "../helpers/locationMarkers";
     import {
         assignTripsToCluster,
         createCluster,
