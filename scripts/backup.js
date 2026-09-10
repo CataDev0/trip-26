@@ -3,10 +3,11 @@
 const sqlite = require("better-sqlite3");
 const path = require("path");
 
-const sourcePath = path.join(__dirname, "..", "trip.db");
+const sourcePath = process.env.TRIP_DB
+    ? path.resolve(process.env.TRIP_DB)
+    : path.join(__dirname, "..", "trip.db");
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-const destPath = path.join(__dirname, "..", `trip.db.${stamp}.bak`);
-
+const destPath = `${sourcePath}.${stamp}.bak`;
 const db = sqlite(sourcePath);
 db.backup(destPath)
     .then(() => {
