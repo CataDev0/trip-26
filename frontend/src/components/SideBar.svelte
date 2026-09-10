@@ -7,8 +7,6 @@
         ChevronDown,
         ChevronLeft,
         ChevronRight,
-        Cross,
-        CrossIcon,
         Download,
         Eye,
         EyeOff,
