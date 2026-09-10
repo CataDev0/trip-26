@@ -10,7 +10,7 @@ let mapInstance: L.Map;
 let mapContainerElement: HTMLDivElement;
 let sharedLayerControl: L.Control.Layers;
 
-L.PM.setOptIn(true); 
+L.PM.setOptIn(true);
 
 export function getSharedMap() {
     if (!mapInstance) {
@@ -20,14 +20,14 @@ export function getSharedMap() {
         mapContainerElement.style.height = "100%";
 
         // Initialize the map on this element
-        mapInstance = L.map(mapContainerElement, { 
-            rotate: true, 
-            rotateControl: { closeOnZeroBearing: false},
+        mapInstance = L.map(mapContainerElement, {
+            rotate: true,
+            rotateControl: { closeOnZeroBearing: false },
             touchRotate: true,
-            pmIgnore: false, 
+            pmIgnore: false,
         })
             .setView([59.8566, 10.5522], 9);
-        
+
         const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
             attribution: "&copy; OpenStreetMap",
@@ -39,12 +39,23 @@ export function getSharedMap() {
 
         mapInstance.addLayer(osm);
 
+        const LegendControl = L.Control.extend({
+            onAdd: function (map) {
+                // Create a div element for the control
+                const div = L.DomUtil.create("div", "legend-control");
+                // Add the legend HTML to the div
+                div.innerHTML = createLegend();
+                return div;
+            },
+        });
+
         const baseMaps = {
             "OpenStreetMap": osm,
-            "Cycle Map (CyclOSM)": osmCyclo
+            "Cycle Map (CyclOSM)": osmCyclo,
         };
 
         sharedLayerControl = L.control.layers(baseMaps).addTo(mapInstance);
+        mapInstance.addControl(new LegendControl({ position: "bottomright" }));
     }
 
     return { map: mapInstance, container: mapContainerElement };
@@ -64,4 +75,15 @@ export function reRenderPathBasedOnZoom(map: L.Map) {
     lastSimplifiedZoomBucket.set(bucket);
 
     renderPath(map)
+}
+
+function createLegend() {
+    return `
+        <div class="legend">
+            <h3 style="margin-bottom: 0.1rem; font-size: 0.66rem;">Speed visualization km/h</h3>
+            <div class="legend-item">
+                <img src="icons/speed-colors.png" alt="speed-colors-legend">
+            </div>
+        </div>
+    `;
 }

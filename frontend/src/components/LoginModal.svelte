@@ -21,7 +21,6 @@
       await setAuthCredentials(username, password);
       show = false;
       errorMsg = "";
-      alert("Saved securely! Please try your action again.");
   }
 </script>
 
@@ -43,7 +42,7 @@
         <button class="btn-cancel" on:click={() => (show = false)}
           >Cancel</button
         >
-        <button class="btn-save" on:click={login}>Save on Device</button>
+        <button type="submit" class="btn-save" on:submit={login} on:click={login}>Save on Device</button>
       </div>
     </div>
   </div>
