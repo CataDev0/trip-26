@@ -11,9 +11,7 @@ export async function fetchTrips(): Promise<void> {
         authFetch(API_BASE + "/api/trips?trashed=true"),
     ]);
 
-    if (!activeRes.ok || !trashRes.ok) {
-        throw new Error("Failed to load trips");
-    }
+    // authFetch throws on non-2xx responses, so no need to check res.ok here.
 
     const [active, trash] = await Promise.all([
         activeRes.json(),
