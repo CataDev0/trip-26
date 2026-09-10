@@ -98,12 +98,17 @@ export function initializeDatabase(db) {
  * @param {import('better-sqlite3').Database} db
  */
 function seedLocations(db) {
-  const locationsPath = path.join(path.dirname("."), "locations.json");
+  const locationsPath = path.resolve(process.cwd(), "locations.json");
   if (!fs.existsSync(locationsPath)) return;
 
-  const locationsData = fs.readFileSync(locationsPath, "utf8");
-  const rawLocations = JSON.parse(locationsData);
-
+  let rawLocations;
+  try {
+    const locationsData = fs.readFileSync(locationsPath, "utf8");
+    rawLocations = JSON.parse(locationsData);
+  } catch (e) {
+    console.error("Error reading/parsing locations.json:", e);
+    return;
+  }
   if (Array.isArray(rawLocations) && rawLocations.length > 0) {
     const count = db.prepare("SELECT COUNT(*) as count FROM locations").get();
     if (count.count === 0) {
