@@ -8,12 +8,6 @@ import { isSpliceMode, locations, markers, spliceEndPt, spliceStartPt } from "..
 import { visitedIds } from "./locationMarkers";
 import { gpsPath } from "../stores/tripStore";
 
-export type LeafletWindow = Window & typeof globalThis & {
-    editLocName?: (id: number, newName: string) => void;
-    deleteLoc?: (id: number) => void;
-    saveLocation?: (id: number) => void;
-};
-
 export class MapEditor {
     public map: L.Map;
 
@@ -45,36 +39,63 @@ export class MapEditor {
                 this.loadData();
             });
 
-        this.map.eachLayer((layer) => { 
+        this.map.eachLayer((layer) => {
             layer.options.pmIgnore = true;
         });
 
-        this.map.on("pm:create", (e) => {
-            if (e.shape === "Marker") {
-                const newLoc: LocationData = {
-                    id: get(locations).length,
-                    name: "New Location",
-                    lat: (e.layer as L.Marker).getLatLng().lat,
-                    lng: (e.layer as L.Marker).getLatLng().lng,
-                };
-
-                this.map.removeLayer(e.layer);
-                locations.update((locs) => [...locs, newLoc]);
-                this.renderLocations();
-            }
-        });
-
-        this.map.on("pm:remove", (e) => {
-            this.drawnGeomanShapes = this.drawnGeomanShapes.filter(
-                (layer) => layer !== e.layer,
-            );
-        });
+        // Named handlers so dispose() can remove them from the shared map
+        this.map.on("pm:create", this.onPmCreate);
+        this.map.on("pm:remove", this.onPmRemove);
 
         // Add map click listener
-        this.map.on("click", (e) => {
-            if (!get(isSpliceMode)) return;
-            this.handleSpliceLocationSelection(e.latlng.lat, e.latlng.lng);
+        this.map.on("click", this.onMapClick);
+    }
+
+    private onPmCreate = (e: L.LeafletEvent) => {
+        if ((e as { shape?: string }).shape === "Marker") {
+            // New locations get no id — the server generates one on save
+            const newLoc = {
+                name: "New Location",
+                lat: ((e as { layer?: L.Marker }).layer as L.Marker).getLatLng().lat,
+                lng: ((e as { layer?: L.Marker }).layer as L.Marker).getLatLng().lng,
+            } as LocationData;
+
+            this.map.removeLayer((e as { layer?: L.Marker }).layer as L.Marker);
+            locations.update((locs) => [...locs, newLoc]);
+            this.renderLocations();
+        }
+    };
+
+    private onPmRemove = (e: L.LeafletEvent) => {
+        this.drawnGeomanShapes = this.drawnGeomanShapes.filter(
+            (layer) => layer !== e.layer,
+        );
+    };
+
+    private onMapClick = (e: L.LeafletMouseEvent) => {
+        if (!get(isSpliceMode)) return;
+        this.handleSpliceLocationSelection(e.latlng.lat, e.latlng.lng);
+    };
+
+    // Remove listeners and Geoman controls registered on the shared map
+    // (the map persists across view navigation, so cleanup is mandatory)
+    dispose() {
+        this.map.off("pm:create", this.onPmCreate);
+        this.map.off("pm:remove", this.onPmRemove);
+        this.map.off("click", this.onMapClick);
+
+        this.spliceMarkers.forEach((m) => this.map.removeLayer(m));
+        this.spliceMarkers = [];
+
+        this.map.eachLayer((layer) => {
+            layer.options.pmIgnore = true;
         });
+        this.map.pm.removeControls();
+        this.map.pm.disableDraw();
+
+        if (this.pathLayerGroup) {
+            this.map.removeLayer(this.pathLayerGroup);
+        }
     }
 
     editLocName(id: number, newName: string) {
@@ -159,11 +180,22 @@ export class MapEditor {
     }
 
     async executeSplice(currentBounds?: L.LatLngBounds) {
-        if (!get(spliceStartPt) || !get(spliceEndPt)) return;
+        const startPt = get(spliceStartPt);
+        const endPt = get(spliceEndPt);
+        if (!startPt || !endPt) return;
+
+        if (startPt.trip_id === undefined || startPt.trip_id === null) {
+            alert("Could not determine the trip of the selected points.");
+            return;
+        }
+        if (endPt.trip_id !== undefined && endPt.trip_id !== null && startPt.trip_id !== endPt.trip_id) {
+            alert("Point A and Point B are in different trips. Select both points within the same trip.");
+            return;
+        }
 
         if (
             !confirm(
-                `Delete all points between Point A (${get(spliceStartPt)!.id}) and Point B (${get(spliceEndPt)!.id})?`,
+                `Delete all points between Point A (${startPt.id}) and Point B (${endPt.id})?`,
             )
         )
             return;
@@ -173,8 +205,9 @@ export class MapEditor {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    startId: get(spliceStartPt)!.id,
-                    endId: get(spliceEndPt)!.id,
+                    startId: startPt.id,
+                    endId: endPt.id,
+                    tripId: startPt.trip_id,
                 }),
             });
             if (res.ok) {
@@ -223,7 +256,7 @@ export class MapEditor {
 
         const markersVal = get(markers);
         if (markersVal && markersVal.length > 0) {
-            const group: L.FeatureGroup = new L.featureGroup(markersVal);
+            const group: L.FeatureGroup = L.featureGroup(markersVal);
             this.map.fitBounds(group.getBounds());
         }
     }
@@ -237,7 +270,7 @@ export class MapEditor {
 
             const markersVal = get(markers);
             if (markersVal && markersVal.length > 0) {
-                const group: L.FeatureGroup = new L.featureGroup(markersVal);
+                const group: L.FeatureGroup = L.featureGroup(markersVal);
                 this.map.fitBounds(group.getBounds());
             }
         } catch (e) {
@@ -265,24 +298,57 @@ export class MapEditor {
                 });
             });
 
-            marker.bindPopup(`
-        <div style="min-width:150px">
-            <strong>Edit Name:</strong><br>
-            <input type="text" value="${loc.name.replace(/"/g, "&quot;")}" onchange="window.editLocName(${index}, this.value)" style="width:100%;margin:5px 0" />
-            <button 
-                onclick="window.deleteLoc(${index})" 
-                class="btn"
-                style="background-color:red;color:white;border:none;padding:4px;cursor:pointer;width:100%;margin-top:0.25rem">
-                Delete Location
-            </button>
-            <button
-                onclick="window.saveLocation(${index})"                 
-                class="btn"
-                style="background:green;color:white;border:none;padding:4px;cursor:pointer;width:100%;margin-top:0.25rem">
-                Save Location
-            </button>  
-        </div>
-      `);
+            // Build popup with DOM APIs — names are user input, never interpolate
+            // them into HTML strings
+            const popup = document.createElement("div");
+            popup.style.minWidth = "150px";
+
+            const label = document.createElement("strong");
+            label.textContent = "Edit Name:";
+            popup.appendChild(label);
+            popup.appendChild(document.createElement("br"));
+
+            const input = document.createElement("input");
+            input.type = "text";
+            input.value = loc.name;
+            input.style.width = "100%";
+            input.style.margin = "5px 0";
+            input.addEventListener("change", () => {
+                this.editLocName(index, input.value);
+            });
+            popup.appendChild(input);
+
+            const deleteButton = document.createElement("button");
+            deleteButton.className = "btn";
+            deleteButton.style.backgroundColor = "red";
+            deleteButton.style.color = "white";
+            deleteButton.style.border = "none";
+            deleteButton.style.padding = "4px";
+            deleteButton.style.cursor = "pointer";
+            deleteButton.style.width = "100%";
+            deleteButton.style.marginTop = "0.25rem";
+            deleteButton.textContent = "Delete Location";
+            deleteButton.addEventListener("click", () => {
+                this.deleteLoc(index);
+            });
+            popup.appendChild(deleteButton);
+
+            const saveButton = document.createElement("button");
+            saveButton.className = "btn";
+            saveButton.style.background = "green";
+            saveButton.style.color = "white";
+            saveButton.style.border = "none";
+            saveButton.style.padding = "4px";
+            saveButton.style.cursor = "pointer";
+            saveButton.style.width = "100%";
+            saveButton.style.marginTop = "0.25rem";
+            saveButton.textContent = "Save Location";
+            saveButton.addEventListener("click", () => {
+                this.saveLocation(get(locations)[index]);
+            });
+            popup.appendChild(saveButton);
+
+            marker.bindPopup(popup);
 
             markers.update((prev) => [...prev, marker]);
         });
@@ -306,6 +372,7 @@ export class MapEditor {
             polyline.on("click", () => {
                 // Deselect whatever was previously active
                 if (this.selectedLine && this.selectedLine !== polyline) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- geoman attaches pm at runtime
                     (this.selectedLine as any).pm.disable();
                     this.selectedLine.setStyle({ color: "blue", weight: 5, dashArray: undefined });
                     this.selectedLine.options.pmIgnore = true;
@@ -340,6 +407,7 @@ export class MapEditor {
             });
 
             // Attach the original timestamps to the layer so we can potentially save them back
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Leaflet layers carry arbitrary metadata
             (polyline as any)._originalPoints = simplified;
             if (this.pathLayerGroup) {
                 polyline.addTo(this.pathLayerGroup);
@@ -372,7 +440,15 @@ export class MapEditor {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(
-                    get(locations).map((l) => ({ name: l.name, lat: l.lat, lng: l.lng })),
+                    // Send existing ids so the server upserts instead of
+                    // regenerating them (which would orphan visited marks)
+                    get(locations).map((l) => ({
+                        id: l.id,
+                        name: l.name,
+                        lat: l.lat,
+                        lng: l.lng,
+                        trip_id: l.trip_id ?? null,
+                    })),
                 ),
             });
             if (res.ok) alert("Successfully saved locations!");
@@ -388,20 +464,36 @@ export class MapEditor {
             const res = await authFetch(API_BASE + "/api/locations/single", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: ld.name, lat: ld.lat, lng: ld.lng }),
+                body: JSON.stringify({
+                    id: ld.id,
+                    name: ld.name,
+                    lat: ld.lat,
+                    lng: ld.lng,
+                    trip_id: ld.trip_id ?? null,
+                }),
             });
 
             if (res.ok) {
                 const data = await res.json();
-                // Add to local state
-                const newLoc = { id: data.id, name: ld.name, lat: ld.lat, lng: ld.lng };
-                locations.update((locs) => [...locs, newLoc]);
-                this.renderLocations();
-                alert("New location saved!");
+                if (ld.id === undefined) {
+                    // New location — add it to local state with the server-issued id
+                    const newLoc = {
+                        id: Number(data.id),
+                        name: ld.name,
+                        lat: ld.lat,
+                        lng: ld.lng,
+                        trip_id: ld.trip_id ?? null,
+                    };
+                    locations.update((locs) => [...locs, newLoc]);
+                    this.renderLocations();
+                    alert("New location saved!");
+                } else {
+                    alert("Location saved!");
+                }
             } else {
                 alert("Failed to save location.");
             }
-            
+
         } catch (e) {
             alert("Error saving location.");
             console.error(e);
@@ -419,6 +511,7 @@ export class MapEditor {
         this.pathLayerGroup.eachLayer((layer: L.Layer) => {
             if (!(layer instanceof L.Polyline)) return;
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getLatLngs returns nested arrays of varying depth
             const flatten = (arr: any[]): L.LatLng[] =>
                 !arr?.length ? [] : Array.isArray(arr[0]) ? arr.flatMap(flatten) : arr;
 
@@ -428,9 +521,17 @@ export class MapEditor {
                 const { best, bestDist } = this.findClosest(ll.lat, ll.lng, originalPoints, this.map);
 
                 if (best?.timestamp && bestDist < MATCH_THRESHOLD_METERS) {
-                    if (usedTimestamps.has(best.timestamp)) return; 
+                    if (usedTimestamps.has(best.timestamp)) return;
                     usedTimestamps.add(best.timestamp);
-                    newPathData.push({ lat: ll.lat, lng: ll.lng, timestamp: best.timestamp });
+                    newPathData.push({
+                        lat: ll.lat,
+                        lng: ll.lng,
+                        timestamp: best.timestamp,
+                        // Preserve the trip association and speed so saving
+                        // edited traces does not orphan every point
+                        trip_id: best.trip_id,
+                        current_speed: best.current_speed,
+                    });
                 } else {
                     newPathData.push({ lat: ll.lat, lng: ll.lng });
                 }
@@ -461,6 +562,26 @@ export class MapEditor {
                 newPathData[i].timestamp = new Date(new Date(next.timestamp).getTime() - 1000).toISOString();
             } else {
                 newPathData[i].timestamp = new Date().toISOString();
+            }
+        }
+
+        // New and interpolated points inherit the trip_id of the nearest
+        // neighbor that has one, so drawn-in segments stay in their trip
+        let lastTripId: number | null = null;
+        for (const pt of newPathData) {
+            if (pt.trip_id !== undefined && pt.trip_id !== null) {
+                lastTripId = pt.trip_id;
+            } else if (lastTripId !== null) {
+                pt.trip_id = lastTripId;
+            }
+        }
+        lastTripId = null;
+        for (let i = newPathData.length - 1; i >= 0; i--) {
+            const pt = newPathData[i];
+            if (pt.trip_id !== undefined && pt.trip_id !== null) {
+                lastTripId = pt.trip_id;
+            } else if (lastTripId !== null) {
+                pt.trip_id = lastTripId;
             }
         }
 

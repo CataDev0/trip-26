@@ -15,4 +15,10 @@ export const visitedIcon = new L.Icon({
     shadowSize: [41, 41]
 });
 
-export const CHUNKS_PER_TRIP = 4;
+export const MAX_SEGMENTS_PER_TRIP = 200;
+// Upper bound for trace points per trip at high zoom 
+// - see simplifyTripByBudget
+export const MAX_TRACE_POINTS = 5000;
+// Minimum pixel tolerance for trace simplification — anything finer than a few
+// pixels is invisible
+export const MIN_TRACE_TOLERANCE_PX = 3;

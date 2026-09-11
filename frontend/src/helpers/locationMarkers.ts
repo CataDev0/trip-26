@@ -40,6 +40,49 @@ export async function markVisited(id: number) {
     }
 };
 
+export async function unmarkVisited(id: number) {
+    try {
+        await authFetch(API_BASE + `/api/visited/${id}`, {
+            method: "DELETE",
+        });
+
+        visitedIds.update(set => {
+            const next = new Set(set);
+            next.delete(id);
+            return next;
+        });
+
+        const loc = get(locations).find((l) => l.id === id);
+        const marker = markers[id];
+
+        if (loc && marker) {
+            marker.setIcon(defaultIcon);
+            marker.setPopupContent(createPopupContent(loc, false));
+        }
+    } catch (err) {
+        console.error("Error reverting visited status:", err);
+        alert("Failed to revert visited status.");
+    }
+};
+
+// Associate a location with a trip (tripId: null removes the association)
+export async function setLocationTrip(id: number, tripId: number | null) {
+    try {
+        await authFetch(API_BASE + `/api/locations/${id}/trip`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tripId }),
+        });
+
+        locations.update((locs) =>
+            locs.map((l) => (l.id === id ? { ...l, trip_id: tripId } : l)),
+        );
+    } catch (err) {
+        console.error("Error associating location with trip:", err);
+        alert("Failed to associate location with trip.");
+    }
+};
+
 export function updateMarkerPopup(loc: LocationData) {
     const marker = markers[loc.id];
     if (marker && marker.getPopup()) {
@@ -55,20 +98,50 @@ export function setMarker(id: number, marker: L.Marker) {
     markers[id] = marker;
 }
 
-export function createPopupContent(loc: LocationData, isVisited: boolean): string {
-    return `
-      <div style="text-align: center; min-width: 120px;">
-        ${loc.imageUrl ? `<img src="${loc.imageUrl}" alt="${loc.name}" style="width:100%; max-height:100px; object-fit:cover; border-radius:4px; margin-bottom:5px;" /><br>` : ""}
-        <strong>${loc.name}</strong><br>
-        ${
-            isVisited
-                ? "<span style=\"color:#28a745;font-weight:bold;\">✓ Visited</span>"
-                : get(canSaveLocations) 
-                    ? `<button style="margin-top:5px;padding:4px;cursor:pointer;" onclick="window.markVisited(${loc.id})">Mark as Visited</button>` 
-                    : ""
-        }
-      </div>
-    `;
+// Builds popup content with DOM APIs only — names come from user input and
+// external sources, so they must never be interpolated into HTML strings
+export function createPopupContent(loc: LocationData, isVisited: boolean): HTMLElement {
+    const container = document.createElement("div");
+    container.style.textAlign = "center";
+    container.style.minWidth = "120px";
+
+    if (loc.imageUrl) {
+        const img = document.createElement("img");
+        img.src = loc.imageUrl;
+        img.alt = loc.name;
+        img.style.width = "100%";
+        img.style.maxHeight = "100px";
+        img.style.objectFit = "cover";
+        img.style.borderRadius = "4px";
+        img.style.marginBottom = "5px";
+        container.appendChild(img);
+        container.appendChild(document.createElement("br"));
+    }
+
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = loc.name;
+    container.appendChild(nameEl);
+    container.appendChild(document.createElement("br"));
+
+    if (isVisited) {
+        const visited = document.createElement("span");
+        visited.style.color = "#28a745";
+        visited.style.fontWeight = "bold";
+        visited.textContent = "✓ Visited";
+        container.appendChild(visited);
+    } else if (get(canSaveLocations)) {
+        const button = document.createElement("button");
+        button.style.marginTop = "5px";
+        button.style.padding = "4px";
+        button.style.cursor = "pointer";
+        button.textContent = "Mark as Visited";
+        button.addEventListener("click", () => {
+            markVisited(loc.id);
+        });
+        container.appendChild(button);
+    }
+
+    return container;
 }
 
 export function renderLocations(map: L.Map) {

@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
+    "backup": "node scripts/backup.js",
     "build": "npm --prefix frontend ci && npm --prefix frontend run build",
     "sync:android": "npm --prefix frontend run cap:sync",
     "build:android": "npm run build && npm run sync:android",
@@ -20,7 +21,8 @@
     "better-sqlite3": "^12.9.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2"
   },
   "devDependencies": {
     "@eslint/compat": "^2.0.4",

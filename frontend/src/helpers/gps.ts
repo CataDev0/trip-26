@@ -12,12 +12,15 @@ export class Gps {
     private currentPositionMarker: L.CircleMarker | null = null;
     private lastSpeedLimitFetch = 0;
     private wakeLock: WakeLockSentinel | null = null;
-    private offlineQueue: { lat: number; lng: number }[] = JSON.parse(
+    private offlineQueue: { lat: number; lng: number; timestamp?: string; tripId?: number | null; speed?: number | null }[] = JSON.parse(
         localStorage.getItem("gpsOfflineQueue") || "[]"
     );
     private geoLocation: Geolocation;
     private mapViewOptions: L.ZoomPanOptions = { animate: true, "easeLinearity": 0.25, "duration": 0.25 };
     private currentTripId: number | null = null;
+    private lastLat: number | null = null;
+    private lastLng: number | null = null;
+    private lastBearing: number | null = null;
 
     constructor(map: L.Map) {
         this.map = map;
@@ -97,8 +100,10 @@ export class Gps {
                 } else {
                     navigator.geolocation.clearWatch(Number(this.watchId));
                 }
-                this.watchId = null;
+            } else {
+                navigator.geolocation.clearWatch(Number(this.watchId));
             }
+            this.watchId = null;
             if (this.wakeLock !== null) {
                 this.wakeLock.release().then(() => {
                     this.wakeLock = null;
@@ -109,6 +114,9 @@ export class Gps {
             currentSpeedLimit.set(null);
             autoFollow.set(true);
             gpsStatus.set("GPS: Stopped");
+            this.lastLat = null;
+            this.lastLng = null;
+            this.lastBearing = null;
             if (this.currentPositionMarker) {
                 this.map.removeLayer(this.currentPositionMarker);
                 this.currentPositionMarker = null;
@@ -134,12 +142,27 @@ export class Gps {
                 body: JSON.stringify(this.offlineQueue),
             });
             if (res.ok) {
+                this.remapTripId(await res.json());
                 this.offlineQueue = [];
                 localStorage.setItem("gpsOfflineQueue", "[]");
             }
         } catch {
             console.log("Still offline, queue length:", this.offlineQueue.length);
         }
+    }
+
+    // The server may remap a client-generated trip id if it collides with an
+    // existing row — follow it so subsequent points stay in the same trip
+    private remapTripId(data: { tripIds?: Record<string, number> }) {
+        if (!data?.tripIds || this.currentTripId === null) return;
+        const oldTripId = this.currentTripId;
+        const remapped = data.tripIds[String(oldTripId)];
+        if (remapped === undefined || Number(remapped) === oldTripId) return;
+
+        this.currentTripId = Number(remapped);
+        this.offlineQueue = this.offlineQueue.map((p) =>
+            p.tripId === oldTripId ? { ...p, tripId: this.currentTripId as number } : p,
+        );
     }
 
     private async requestWakeLock() {
@@ -158,7 +181,8 @@ export class Gps {
 
     private async fetchSpeedLimit(lat: number, lng: number) {
         try {
-            const res = await fetch(
+            // The speed-limit proxy requires auth (it uses a paid API key)
+            const res = await authFetch(
                 API_BASE + `/api/speed-limit?lat=${lat}&lng=${lng}`,
             );
             if (!res.ok) throw new Error("Proxy failed");
@@ -186,6 +210,29 @@ export class Gps {
 
         if (accuracy > 20) return;
 
+        // Calculate heading: prefer device bearing, fall back to movement direction
+        let effectiveBearing: number | null = null;
+        if (bearing !== null && bearing !== undefined && !isNaN(bearing) && bearing >= 0) {
+            effectiveBearing = bearing;
+        } else if (this.lastLat !== null && this.lastLng !== null) {
+            const moved = this.computeBearing(this.lastLat, this.lastLng, lat, lng);
+            if (moved !== null) {
+                effectiveBearing = moved;
+            }
+        }
+
+        // Smooth bearing transitions: only update if the change is meaningful
+        if (effectiveBearing !== null) {
+            if (this.lastBearing !== null) {
+                // Interpolate bearing for smooth rotation
+                let delta = effectiveBearing - this.lastBearing;
+                if (delta > 180) delta -= 360;
+                if (delta < -180) delta += 360;
+                effectiveBearing = this.lastBearing + delta * 0.5;
+            }
+            this.lastBearing = effectiveBearing;
+        }
+
         const gpsPathData = get(gpsPath);
         const lastPoint = gpsPathData[gpsPathData.length - 1];
 
@@ -198,11 +245,15 @@ export class Gps {
                 opacity: 1,
                 fillOpacity: 0.8,
             }).addTo(this.map);
-            if (get(autoFollow)) this.map.setView([lat, lng], 15, this.mapViewOptions).setBearing(bearing || this.map.getBearing());
+            if (get(autoFollow)) this.centerOnPosition(lat, lng, effectiveBearing);
         } else {
             this.currentPositionMarker.setLatLng([lat, lng]);
-            if (get(autoFollow)) this.map.setView([lat, lng], 15, this.mapViewOptions).setBearing(bearing || this.map.getBearing());
+            if (get(autoFollow)) this.centerOnPosition(lat, lng, effectiveBearing);
         }
+
+        // Store position for next bearing calculation
+        this.lastLat = lat;
+        this.lastLng = lng;
 
         let shouldSave = true;
         if (lastPoint) {
@@ -222,11 +273,12 @@ export class Gps {
             }
 
             try {
-                await authFetch(API_BASE + "/api/path", {
+                const res = await authFetch(API_BASE + "/api/path", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(point),
                 });
+                this.remapTripId(await res.json());
             } catch (e) {
                 console.error("Failed to save to DB, queueing offline", e);
                 this.offlineQueue.push(point);
@@ -234,6 +286,43 @@ export class Gps {
             }
         }
     };
+
+    /**
+     * Calculate bearing between two lat/lng points.
+     * Returns bearing in degrees (0-360) or null if points are too close.
+     */
+    private computeBearing(lat1: number, lng1: number, lat2: number, lng2: number): number | null {
+        const dLon = ((lng2 - lng1) * Math.PI) / 180;
+        const lat1Rad = (lat1 * Math.PI) / 180;
+        const lat2Rad = (lat2 * Math.PI) / 180;
+        const y = Math.sin(dLon) * Math.cos(lat2Rad);
+        const x =
+            Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+            Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+        const brng = (Math.atan2(y, x) * 180) / Math.PI;
+        // Require at least ~3 meters of movement before reporting a bearing
+        const dist = this.map.distance([lat1, lng1], [lat2, lng2]);
+        if (dist < 3) return this.lastBearing;
+        return ((brng + 360) % 360);
+    }
+
+    /**
+     * Center the map on the given position, offset so the marker appears
+     * in the lower half of the screen, and rotate toward bearing.
+     */
+    private centerOnPosition(lat: number, lng: number, bearing: number | null) {
+        const mapSize = this.map.getSize();
+        // Offset by ~15% of map height upward so the position appears in the lower portion
+        const offsetY = Math.round(mapSize.y * 0.15);
+        const targetPoint = this.map.latLngToContainerPoint([lat, lng]);
+        const offsetPoint = L.point(targetPoint.x, targetPoint.y - offsetY);
+        const centerLatLng = this.map.containerPointToLatLng(offsetPoint);
+
+        this.map.setView(centerLatLng, 15, this.mapViewOptions);
+        if (bearing !== null && bearing !== undefined) {
+            this.map.setBearing(bearing);
+        }
+    }
 
     public handleVisibilityChange = () => {
         if (this.wakeLock !== null &&

@@ -2,19 +2,6 @@ export class Utils {
     static liveTrackTimer = null;
     static isLiveTracking = false;
 
-    static haversineMeters(lat1, lng1, lat2, lng2) {
-        const earthRadius = 6371000;
-        const toRadians = (degrees) => (degrees * Math.PI) / 180;
-        const deltaLat = toRadians(lat2 - lat1);
-        const deltaLng = toRadians(lng2 - lng1);
-        const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-            Math.cos(toRadians(lat1)) *
-            Math.cos(toRadians(lat2)) *
-            Math.sin(deltaLng / 2) *
-            Math.sin(deltaLng / 2);
-        return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
     static simplifyDP(points, distanceThresholdMeters) {
         if (points.length <= 2) return new Set(points.map((p) => p.id));
 

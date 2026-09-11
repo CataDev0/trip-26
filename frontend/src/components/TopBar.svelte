@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from "svelte";
+  import { onMount, onDestroy, createEventDispatcher } from "svelte";
   import LoginModal from "./LoginModal.svelte";
   import { API_BASE, VISITOR_COUNT_REFRESH_INTERVAL } from "../helpers/Constants";
   import { EyeIcon } from "lucide-svelte";
@@ -15,6 +15,7 @@
   }>();
 
   let visitorCount: number = 1;
+  let visitorInterval: ReturnType<typeof setInterval> | null = null;
 
   onMount(() => {
       if (showVisitorCount) {
@@ -36,11 +37,14 @@
 
           fetchVisitors();
           // Refresh visitor count every minute
-          const visitorInterval = setInterval(fetchVisitors, VISITOR_COUNT_REFRESH_INTERVAL);
+          visitorInterval = setInterval(fetchVisitors, VISITOR_COUNT_REFRESH_INTERVAL);
+      }
+  });
 
-          return () => {
-              clearInterval(visitorInterval);
-          };
+  // Clean up the visitor count interval when the component is destroyed
+  onDestroy(() => {
+      if (visitorInterval !== null) {
+          clearInterval(visitorInterval);
       }
   });
 </script>

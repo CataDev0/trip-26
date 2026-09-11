@@ -1,4 +1,6 @@
 import { Utils } from './Utils.mjs'
+import fs from "fs"
+import path from 'path';
 
 /**
  * Initializes the database schema.
@@ -12,6 +14,18 @@ export function initializeDatabase(db) {
       )
     `,
   ).run();
+
+  db.prepare(
+    `
+      CREATE TABLE IF NOT EXISTS trip_cluster (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT
+      )
+    `
+  ).run();
+
+  // Clusters can be hidden from public viewing
+  addColumnIfMissing(db, 'trip_cluster', 'hidden', 'INTEGER NOT NULL DEFAULT 0');
 
   db.prepare(
     `
@@ -46,11 +60,99 @@ export function initializeDatabase(db) {
     `,
   ).run();
 
+  // Locations can optionally belong to a trip
+  addColumnIfMissing(db, 'locations', 'trip_id', 'INTEGER REFERENCES trips(id)');
+
+  // Soft-deleted trips end up in the trash bin
+  addColumnIfMissing(db, 'trips', 'deleted_at', 'DATETIME');
+
+  // Trips can be hidden from public viewing
+  addColumnIfMissing(db, 'trips', 'hidden', 'INTEGER NOT NULL DEFAULT 0');
+
+  // Refer gps_path traces to a specific trip
   if (!columnExists(db, 'gps_path', 'trip_id')) {
     db.prepare(`ALTER TABLE gps_path ADD COLUMN trip_id INTEGER REFERENCES trips(id)`).run();
     migrateTripIds(db);
   }
+
+  // Refer trips to a cluster
+  if (!columnExists(db, 'trips', 'cluster_id')) {
+    db.prepare(`ALTER TABLE trips ADD COLUMN cluster_id INTEGER REFERENCES trip_cluster(id)`).run();
+  }
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_trips_cluster_id ON trips(cluster_id)`).run();
+
   addColumnIfMissing(db, 'gps_path', 'current_speed', 'INTEGER');
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_gps_path_trip_id ON gps_path(trip_id)`).run();
+
+  // Drop visited marks pointing at locations that no longer exist
+  db.prepare(`DELETE FROM visited_locations WHERE id NOT IN (SELECT id FROM locations)`).run();
+
+  normalizeTimestamps(db);
+  seedLocations(db);
+}
+
+/**
+ * Seed locations from JSON if database is empty and locations.json is populated
+ * @param {import('better-sqlite3').Database} db
+ */
+function seedLocations(db) {
+  const locationsPath = path.resolve(process.cwd(), "locations.json");
+  if (!fs.existsSync(locationsPath)) return;
+
+  let rawLocations;
+  try {
+    const locationsData = fs.readFileSync(locationsPath, "utf8");
+    rawLocations = JSON.parse(locationsData);
+  } catch (e) {
+    console.error("Error reading/parsing locations.json:", e);
+    return;
+  }
+  if (Array.isArray(rawLocations) && rawLocations.length > 0) {
+    const count = db.prepare("SELECT COUNT(*) as count FROM locations").get();
+    if (count.count === 0) {
+      try {
+        const insert = db.prepare(
+          "INSERT INTO locations (name, lat, lng) VALUES (?, ?, ?)",
+        );
+        const insertMultiple = db.transaction((locs) => {
+          for (const loc of locs) {
+            if (loc.name && loc.lat && loc.lng) {
+              insert.run(loc.name, loc.lat, loc.lng);
+            }
+          }
+        });
+        insertMultiple(rawLocations);
+        console.log("Seeded database with locations.json");
+      } catch (e) {
+        console.error("Error seeding database:", e);
+      }
+    }
+  }
+}
+
+/**
+ * One-time, idempotent migration: convert legacy "YYYY-MM-DD HH:MM:SS" timestamps
+ * (SQLite CURRENT_TIMESTAMP format) to ISO 8601 so string ordering is correct.
+ * @param {import('better-sqlite3').Database} db
+ */
+function normalizeTimestamps(db) {
+  const tables = [
+    ['gps_path', 'timestamp'],
+    ['trips', 'started_at'],
+    ['trips', 'ended_at'],
+    ['trips', 'deleted_at'],
+  ];
+
+  for (const [table, column] of tables) {
+    const updated = db.prepare(
+      `UPDATE ${table} SET ${column} = substr(${column}, 1, 10) || 'T' || substr(${column}, 12) || 'Z' WHERE instr(${column}, 'T') = 0 AND length(${column}) >= 19`
+    ).run();
+    if (updated.changes > 0) {
+      console.log(`Normalize timestamps: converted ${updated.changes} ${table}.${column} rows to ISO 8601.`);
+    }
+  }
 }
 
 function columnExists(db, table, column) {
@@ -82,7 +184,7 @@ function migrateTripIds(db) {
     return;
   }
 
-  const trips = Utils.SplitTripsByGap(gpsPathRows, 30); 
+  const trips = Utils.SplitTripsByGap(gpsPathRows, 30);
   console.log(`Detected ${trips.length} trips from ${gpsPathRows.length} points.`);
 
   const insertTrip = db.prepare(

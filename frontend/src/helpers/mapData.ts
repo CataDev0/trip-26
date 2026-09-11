@@ -1,14 +1,16 @@
 import L from "leaflet";
 import { API_BASE } from "./Constants";
+import { authFetch } from "./auth";
 import { locations, renderLocations, updateMarkerPopup, visitedIds } from "./locationMarkers";
 import { renderPath, toLatLngPath } from "./tripPath";
-import { gpsPath } from "../stores/tripStore";
+import { gpsPath, pathDataReady } from "../stores/tripStore";
 
 export interface LocationData {
     id: number;
     name: string;
     lat: number;
     lng: number;
+    trip_id?: number | null;
     imageUrl?: string;
 }
 
@@ -18,6 +20,7 @@ export interface PathPoint {
     lat: number;
     lng: number;
     timestamp?: string;
+    current_speed?: number | null;   // km/h, null/undefined for legacy rows
 }
 
 export interface MapBootstrapData {
@@ -27,10 +30,12 @@ export interface MapBootstrapData {
 }
 
 export async function loadMapBootstrapData(): Promise<MapBootstrapData> {
+    // authFetch attaches credentials when available so logged-in users also
+    // see trips hidden from the public (endpoints stay public for everyone)
     const [locationsRes, visitedRes, pathRes] = await Promise.all([
-        fetch(API_BASE + "/api/locations"),
-        fetch(API_BASE + "/api/visited"),
-        fetch(API_BASE + "/api/path"),
+        authFetch(API_BASE + "/api/locations"),
+        authFetch(API_BASE + "/api/visited"),
+        authFetch(API_BASE + "/api/path"),
     ]);
 
     if (!locationsRes.ok) {
@@ -65,6 +70,7 @@ export async function loadData(map: L.Map) {
         locations.update(() => data.locations);
         visitedIds.update(() => data.visitedIds);
         gpsPath.update(() => data.pathData);
+        pathDataReady.set(true);
 
         renderLocations(map);
         renderPath(map);

@@ -14,12 +14,16 @@ export default defineConfig([
 	  	plugins: {
             "@stylistic": stylistic
         },
-		files: ['**/*.{js,ts}'],
+		files: ['**/*.{js,ts,mjs}'],
 		languageOptions: { globals: { ...globals.browser, ...globals.node } }
 	},
 	{
 		// Override or add rule settings here, such as:
 		// 'svelte/button-has-type': 'error'
+		files: ['**/*.{js,ts}'],
+		plugins: {
+            "@stylistic": stylistic
+        },
         rules: {
             "@stylistic/indent": ["error", 4],
             "@stylistic/quotes": ["error", "double"],

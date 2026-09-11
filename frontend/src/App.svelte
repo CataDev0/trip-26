@@ -3,17 +3,18 @@
     import L from "leaflet";
 
     import TopBar from "./components/TopBar.svelte";
-    import { loadData, type LocationData } from "./helpers/mapData";
+    import { loadData } from "./helpers/mapData";
     import { MIN_ATTRACTIONS_ZOOM } from "./helpers/Constants";
     import { fetchAndRenderAttractions } from "./helpers/attractions";
     import { getSharedMap, reRenderPathBasedOnZoom } from "./helpers/sharedMap";
-    import { getMarker } from "./helpers/locationMarkers";
+    import { showTripRoute, showTripsOnMap } from "./helpers/tripPath";
     import SideBar from "./components/SideBar.svelte";
     import { canSaveLocations } from "./stores/editStore";
     import { isLiveTracking } from "./stores/appStore";
     import { LiveTracking } from "./helpers/liveTracking";
+    import { gpsPath, pathDataReady } from "./stores/tripStore";
     import { get } from "svelte/store";
-  import { DoorOpen, LogIn } from "lucide-svelte";
+    import { LogIn } from "lucide-svelte";
 
     let map: L.Map;
     let mapContainer: HTMLDivElement;
@@ -36,6 +37,7 @@
         });
 
         // Append the persistent map container to this specific view's map wrapper
+        // eslint-disable-next-line svelte/no-dom-manipulating -- the shared map container is adopted into this view by design
         mapContainer.appendChild(container);
 
         // Ensure Leaflet resizes properly when adopted by the new parent
@@ -60,7 +62,14 @@
         // Run once immediately, then schedule based on current state
         await liveTracking.updateLiveTracking();
         scheduleNextUpdate();
+
+        window.addEventListener("logged-out", onLoggedOut);
     });
+
+    // Reload map data after logging out
+    const onLoggedOut = async () => {
+        await loadData(map);
+    };
 
     async function findAttractions() {
         findingAttractions = true;
@@ -74,21 +83,42 @@
         }
     }
 
-    function jumpToLocation(loc: LocationData) {
-        sidebarExpanded = false;
-        map.flyTo([loc.lat, loc.lng], 16, { duration: 1.5 });
+    function showTrip(tripId: number) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
+        const bounds = showTripsOnMap(map, [tripId]);
+        if (bounds) {
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+        }
+    }
 
-        // Give it a moment to fly there before opening popup
-        setTimeout(() => {
-            const marker = getMarker(loc.id);
-            if (marker) {
-                marker.openPopup();
-            }
-        }, 1500);
+    function showTrips(tripIds: number[]) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
+        const bounds = showTripsOnMap(map, tripIds);
+        if (bounds) {
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+        }
+    }
+
+    function routeGuidance(tripId: number) {
+        if (!get(pathDataReady) || get(gpsPath).length === 0) {
+            alert("Trip data is still loading. Please wait a moment and try again.");
+            return;
+        }
+        const bounds = showTripRoute(map, tripId);
+        if (bounds) {
+            map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 15, duration: 1.5 });
+        }
     }
 
     onDestroy(() => {
         clearTimeout(trackingTimeout);
+        window.removeEventListener("logged-out", onLoggedOut);
     });
 </script>
 
@@ -131,13 +161,15 @@
 </TopBar>
 
 <div class="main-content">
-    <SideBar {sidebarExpanded} on:jump={(e) => jumpToLocation(e.detail)} />
+    <SideBar
+        {sidebarExpanded}
+        on:showTrip={(e) => showTrip(e.detail)}
+        on:showTrips={(e) => showTrips(e.detail)}
+        on:routeGuidance={(e) => routeGuidance(e.detail)}
+    />
 
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
         class="map"
         bind:this={mapContainer}
-        on:click={() => (sidebarExpanded = false)}
     ></div>
 </div>

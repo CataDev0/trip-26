@@ -55,18 +55,28 @@ export async function clearAuth() {
     await removeStoredToken();
 }
 
-export async function authFetch(url: string, options: any = {}) {
-    const headers = await getAuthHeader();
-    options.headers = {
-        ...options.headers,
-        ...headers
-    };
+export async function isLoggedIn(): Promise<boolean> {
+    const header = await getAuthHeader();
+    return !!header.Authorization;
+}
 
-    const res = await fetch(url, options);
+export async function authFetch(url: string, options: RequestInit = {}) {
+    const authHeader = await getAuthHeader();
+    const headers = new Headers(options.headers);
+    if (authHeader.Authorization) {
+        headers.set("Authorization", authHeader.Authorization);
+    }
+
+    const res = await fetch(url, { ...options, headers });
     if (res.status === 401) {
         if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("require-login"));
         }
+        throw new Error("Authentication required. Please log in and try again.");
+    }
+    if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Request failed (${res.status}): ${body || res.statusText}`);
     }
     return res;
 }

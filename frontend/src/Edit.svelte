@@ -1,49 +1,36 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
+  
   import TopBar from "./components/TopBar.svelte";
-  import { type LeafletWindow, MapEditor } from "./helpers/edit";
+  import { MapEditor } from "./helpers/edit";
   import { getAuthHeader } from "./helpers/auth";
   import { getSharedMap } from "./helpers/sharedMap";
-  import { canSaveLocations, locations } from "./stores/editStore";
+  import { canSaveLocations } from "./stores/editStore";
   import { isSpliceMode, spliceEndPt, spliceStartPt } from "./stores/editStore";
-  import { get } from "svelte/store";
-  
+
   let editor: MapEditor;
   let mapWrapper: HTMLDivElement;
 
   onMount(async () => {
       const { map, container } = getSharedMap();
       editor = new MapEditor(map);
+      // eslint-disable-next-line svelte/no-dom-manipulating -- the shared map container is adopted into this view by design
       mapWrapper.appendChild(container);
 
       // Enable save buttons in edit view
-      canSaveLocations.update(() => true); 
+      canSaveLocations.update(() => true);
 
-      // Global hooks inside popup HTML snippets
-      (window as LeafletWindow).editLocName = (id: number, newName: string) => editor.editLocName(id, newName);
-      (window as LeafletWindow).deleteLoc = (id: number) => editor.deleteLoc(id);
-      (window as LeafletWindow).saveLocation = (id: number) => {
-          const loc = get(locations)[id];
-          editor.saveLocation(loc);
-      }
       const authHeader = getAuthHeader();
       if (!(await authHeader).Authorization) {
           // No auth, show login modal
           window.dispatchEvent(new CustomEvent("require-login"));
       }
+  });
 
-      return () => {
-          delete (window as LeafletWindow).editLocName;
-          delete (window as LeafletWindow).deleteLoc;
-          delete (window as LeafletWindow).saveLocation;
-          if (map) {
-              map.off("pm:create");
-              map.off("pm:remove");
-              map.pm.removeControls();
-              map.pm.disableDraw();
-              if (editor.pathLayerGroup) map.removeLayer(editor.pathLayerGroup);
-          }
-      };
+  // The map is a singleton that persists across views — Geoman controls and
+  // listeners must be torn down on exit (Svelte ignores onMount return values)
+  onDestroy(() => {
+      editor?.dispose();
   });
 </script>
 

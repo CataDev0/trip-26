@@ -24,6 +24,32 @@ Trip Tracker is a full stack application that tracks your roadtrip or hikes usin
 - Username & Password login required one time to start tracking and editing
   - Saved to device
 
+## Privacy
+
+This is a public sharing site: **anyone with the URL can see all trips and all
+GPS points**, including the live position of whoever is currently tracking
+(updated roughly every 10 seconds while a trip is being recorded). Do not
+record trips in locations you do not want public.
+
+Trips can be hidden from public, and deleted entirely.
+
+## API access
+
+| Method + path | Auth | Purpose |
+| --- | --- | --- |
+| `GET /api/path` (`?trip_id=N` optional) | Public | Full GPS history |
+| `GET /api/trips` (`?trashed=true` optional) | Public | Trip list |
+| `GET /api/locations`, `GET /api/visited`, `GET /api/visitors` | Public | Locations / visited marks / visitor count |
+| `GET /api/live-tracking` | Public | Last known live position |
+| `GET /api/speed-limit` | Login required | HERE speed-limit proxy (paid API key) |
+| `POST /api/trips/:id/hidden` | Login required | Toggle trip hidden from public |
+| `POST/PUT/DELETE` on any `/api/*` route | Login required | All writes (points, trips, locations, splice) |
+
+Unknown `/api/*` routes return 404, never the web app. Public GETs exclude
+trips (and their GPS points, locations, and live position) that are hidden
+from public viewing — hidden trips are only served when the request is
+authenticated.
+
 ## Setup Guide
 
 1. ### Clone Repo
@@ -46,7 +72,40 @@ Trip Tracker is a full stack application that tracks your roadtrip or hikes usin
     nano .env
     ```
 
+    **Note:** `ADMIN_USERNAME` and `ADMIN_PASSWORD` are required
+    ```bash
+    ADMIN_USERNAME=
+    ADMIN_PASSWORD= 
+    ```
+
     **Optionally:** Add [HERE](https://docs.here.com/geocoding-and-search/docs/get-started-with-here-geocoding-and-search-api-v7) API key for speed limit functionality - Using the Geocoding and Search API
+
+    **Other optional variables:**
+
+    ```bash
+    # Comma-separated origins allowed to call the API cross-origin.
+    # Unset = no cross-origin access (fine for the normal web + Android setup)
+    CORS_ORIGINS=https://example.com
+
+    # Set to 1 when running behind a reverse proxy so rate limits use the real client IP
+    TRUST_PROXY=0
+
+    # Rate limits per IP per minute (defaults shown)
+    RATE_LIMIT_PUBLIC_PER_MIN=120
+    RATE_LIMIT_WRITE_PER_MIN=30
+    RATE_LIMIT_SPEED_PER_MIN=30
+
+    # Default is 25mb - Required for /api/path endpoint which can use several mbs when replacing entire trip
+    JSON_BODY_LIMIT=25
+    ```
+
+1. ### Back up the database (before deploying)
+
+    ```bash
+    npm run backup
+    ```
+
+    Writes `trip.db.<timestamp>.bak` next to `trip.db`. Run it before every deploy.
 
 1. ### Install dependencies and run vite build
 
@@ -126,7 +185,7 @@ Contributions are welcome and are important to polish the software
 
 - iOS app support with capacitor
   - I dont have iOS, nor do I know how to build and sign an iOS app
-- Group trips together
+- ~~Group trips together~~ PR #3 !3
   - Option to filter based on group trips
 - Better editing tools
   - Clean up messy traces etc.
@@ -134,3 +193,8 @@ Contributions are welcome and are important to polish the software
   - Background tracking
 - Plan trips / Route planning
   - Use an API? Or make a complicated route planning tool
+- Trip replay tool
+  - Based on gps_trace timestamps
+  - Show sped up replay in detail
+  - Smooth animation for each node
+  - Both trips and trip clusters
