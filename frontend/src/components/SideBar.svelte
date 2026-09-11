@@ -43,7 +43,14 @@
         setTripHidden,
         trashTrips,
     } from "../helpers/trips";
-    import { locations, visitedIds, markVisited } from "../helpers/locationMarkers";
+    import {
+        locations,
+        markVisited,
+        setLocationTrip,
+        unmarkVisited,
+        visitedIds,
+    } from "../helpers/locationMarkers";
+    import type { LocationData } from "../helpers/mapData";
     import {
         assignTripsToCluster,
         createCluster,
@@ -54,6 +61,7 @@
     } from "../helpers/clusters";
     import { clearAuth, isLoggedIn } from "../helpers/auth";
     import GroupChooser from "./GroupChooser.svelte";
+    import LocationTripChooser from "./LocationTripChooser.svelte";
 
     export let sidebarExpanded: boolean = false;
 
@@ -65,7 +73,7 @@
 
     type SortMode = "newest" | "oldest" | "name-asc" | "name-desc";
 
-    $: visitedLocationIds = get(visitedIds);
+    $: visitedLocationIds = $visitedIds;
 
     let searchQuery: string = "";
     let sortMode: SortMode = "newest";
@@ -79,6 +87,8 @@
     type ChooserMode = { mode: "selected" } | { mode: "trip"; tripId: number };
     let chooserMode: ChooserMode | null = null;
     let chooserComponent: GroupChooser | null = null;
+    let locationChooserComponent: LocationTripChooser | null = null;
+    let locationChooserLocationId: number | null = null;
 
     const SORT_MODES: { mode: SortMode; label: string }[] = [
         { mode: "newest", label: "Newest" },
@@ -395,8 +405,41 @@
         }
     }
 
+    // Mounts the trip chooser for a location into document.body — same
+    // imperative pattern as the group chooser
+    function openLocationChooser(location: LocationData) {
+        locationChooserLocationId = location.id;
+        locationChooserComponent?.$destroy();
+        locationChooserComponent = new LocationTripChooser({
+            target: document.body,
+            props: {
+                clusters,
+                trips,
+                currentTripId: location.trip_id ?? null,
+                tripLabel: tripName,
+                onChoose: handleLocationTripChoose,
+                onCancel: closeLocationChooser,
+            },
+        });
+    }
+
+    function closeLocationChooser() {
+        locationChooserComponent?.$destroy();
+        locationChooserComponent = null;
+        locationChooserLocationId = null;
+    }
+
+    // setLocationTrip shows its own alert on failure (like markVisited)
+    async function handleLocationTripChoose(tripId: number | null) {
+        const locationId = locationChooserLocationId;
+        closeLocationChooser();
+        if (locationId === null) return;
+        await setLocationTrip(locationId, tripId);
+    }
+
     onDestroy(() => {
         chooserComponent?.$destroy();
+        locationChooserComponent?.$destroy();
     });
 
     // Remove stored credentials, stop sending Auth header
@@ -713,6 +756,9 @@
                 </div>
                 {#each $locations as location (location.id)}
                     {@const visited = visitedLocationIds.has(location.id)}
+                    {@const associatedTrip = location.trip_id != null
+                        ? $trips.find((t) => t.id === location.trip_id)
+                        : undefined}
                     <div class="trip-item">
                         <div
                             class="trip-info {visited
@@ -720,25 +766,33 @@
                                 : ""}"
                         >
                             <div class="trip-name">{location.name}</div>
+                            {#if associatedTrip}
+                                <div class="trip-meta">
+                                    {tripName(associatedTrip)}
+                                </div>
+                            {/if}
                         </div>
                         <!-- svelte-ignore a11y-click-events-have-key-events -->
                         <!-- svelte-ignore a11y-no-static-element-interactions -->
                         <div class="trip-actions" on:click|stopPropagation>
-                            // Button to associate a location with a trip/group 
-                            <button on:click={() => null}>
+                            <button
+                                title="Associate with trip"
+                                on:click={() => openLocationChooser(location)}
+                            >
                                 <MenuIcon size="14" />
                             </button>
                             {#if visited}
                                 <button
                                     title="Revert visited status"
-                                    on:click={() => null}
+                                    on:click={() =>
+                                        unmarkVisited(location.id)}
                                 >
                                     <X size="14" />
                                 </button>
                             {:else}
                                 <button
                                     title="Mark as visited"
-                                    on:click={() => null}
+                                    on:click={() => markVisited(location.id)}
                                 >
                                     <Check size="14" />
                                 </button>

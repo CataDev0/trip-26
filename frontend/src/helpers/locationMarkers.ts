@@ -40,6 +40,49 @@ export async function markVisited(id: number) {
     }
 };
 
+export async function unmarkVisited(id: number) {
+    try {
+        await authFetch(API_BASE + `/api/visited/${id}`, {
+            method: "DELETE",
+        });
+
+        visitedIds.update(set => {
+            const next = new Set(set);
+            next.delete(id);
+            return next;
+        });
+
+        const loc = get(locations).find((l) => l.id === id);
+        const marker = markers[id];
+
+        if (loc && marker) {
+            marker.setIcon(defaultIcon);
+            marker.setPopupContent(createPopupContent(loc, false));
+        }
+    } catch (err) {
+        console.error("Error reverting visited status:", err);
+        alert("Failed to revert visited status.");
+    }
+};
+
+// Associate a location with a trip (tripId: null removes the association)
+export async function setLocationTrip(id: number, tripId: number | null) {
+    try {
+        await authFetch(API_BASE + `/api/locations/${id}/trip`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tripId }),
+        });
+
+        locations.update((locs) =>
+            locs.map((l) => (l.id === id ? { ...l, trip_id: tripId } : l)),
+        );
+    } catch (err) {
+        console.error("Error associating location with trip:", err);
+        alert("Failed to associate location with trip.");
+    }
+};
+
 export function updateMarkerPopup(loc: LocationData) {
     const marker = markers[loc.id];
     if (marker && marker.getPopup()) {

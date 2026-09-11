@@ -163,6 +163,15 @@ app.post("/api/visited", (req, res) => {
     res.json({ success: true });
 });
 
+// Unmark a location as visited
+app.delete("/api/visited/:id", (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "Missing id" });
+
+    db.prepare("DELETE FROM visited_locations WHERE id = ?").run(id);
+    res.json({ success: true });
+});
+
 // Save GPS point(s) to the path
 app.post("/api/path", (req, res) => {
     try {
@@ -712,6 +721,36 @@ app.put("/api/locations/single", (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Could not save location" });
+    }
+});
+
+// Associate a location with a trip (tripId: null removes the association)
+app.put("/api/locations/:id/trip", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const location = db.prepare("SELECT id FROM locations WHERE id = ?").get(id);
+        if (!location) {
+            return res.status(404).json({ error: "Location not found" });
+        }
+
+        const tripId = req.body?.tripId ?? null;
+        if (tripId !== null) {
+            const trip = db
+                .prepare("SELECT id FROM trips WHERE id = ?")
+                .get(Number(tripId));
+            if (!trip) {
+                return res.status(404).json({ error: "Trip not found" });
+            }
+        }
+
+        db.prepare("UPDATE locations SET trip_id = ? WHERE id = ?").run(
+            tripId === null ? null : Number(tripId),
+            id,
+        );
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Could not update location" });
     }
 });
 

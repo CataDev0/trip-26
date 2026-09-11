@@ -30,17 +30,19 @@ export function getSharedMap() {
 
         const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
+            referrerPolicy: "strict-origin-when-cross-origin",
             attribution: "&copy; OpenStreetMap",
         });
         const osmCyclo = L.tileLayer("https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", {
             maxZoom: 19,
+            referrerPolicy: "strict-origin-when-cross-origin",
             attribution: "&copy; CyclOSM",
         });
 
         mapInstance.addLayer(osm);
 
         const LegendControl = L.Control.extend({
-            onAdd: function (map) {
+            onAdd: function (map: L.Map) {
                 // Create a div element for the control
                 const div = L.DomUtil.create("div", "legend-control");
                 // Add the legend HTML to the div
